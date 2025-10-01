@@ -39,6 +39,7 @@ type RSpecQExporter struct {
 	buildRequeues         *prometheus.GaugeVec
 	buildStatus           *prometheus.GaugeVec
 	buildFailFast         *prometheus.GaugeVec
+	buildWithdrawnCount   *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -146,6 +147,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool) *RSpecQE
 				Namespace: namespace,
 				Name:      "build_fail_fast",
 				Help:      "Fail-fast threshold for a build (0 means disabled)",
+			},
+			[]string{"build_id"},
+		),
+		buildWithdrawnCount: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Name:      "build_withdrawn_workers_count",
+				Help:      "Total number of withdrawn workers for a build",
 			},
 			[]string{"build_id"},
 		),
@@ -262,6 +271,7 @@ func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
 	e.buildRequeues.Describe(ch)
 	e.buildStatus.Describe(ch)
 	e.buildFailFast.Describe(ch)
+	e.buildWithdrawnCount.Describe(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Describe(ch)
 	}
@@ -295,6 +305,7 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.buildRequeues.Collect(ch)
 	e.buildStatus.Collect(ch)
 	e.buildFailFast.Collect(ch)
+	e.buildWithdrawnCount.Collect(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Collect(ch)
 	}
@@ -357,6 +368,7 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	e.buildRequeues.Reset()
 	e.buildStatus.Reset()
 	e.buildFailFast.Reset()
+	e.buildWithdrawnCount.Reset()
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Reset()
 	}
@@ -569,8 +581,13 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 		}
 	}
 
-	if !e.disablePerWorkerMetrics {
-		if withdrawn, err := withdrawnCmd.Result(); err == nil {
+	// Process withdrawn workers - always calculate total count for build-level metric
+	if withdrawn, err := withdrawnCmd.Result(); err == nil {
+		totalWithdrawn := float64(len(withdrawn))
+		e.buildWithdrawnCount.WithLabelValues(buildID).Set(totalWithdrawn)
+
+		// Set per-worker withdrawn metrics if enabled
+		if !e.disablePerWorkerMetrics {
 			for workerID, count := range withdrawn {
 				if val, err := parseFloat(count); err == nil {
 					e.workersWithdrawn.WithLabelValues(buildID, workerID).Set(val)

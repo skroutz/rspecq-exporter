@@ -88,10 +88,11 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `rspecq_worker_count` | Gauge | `build_id` | Number of active workers for a build (aggregate metric) |
+| `rspecq_build_withdrawn_workers_count` | Gauge | `build_id` | Total number of withdrawn workers for a build (aggregate metric) |
 | `rspecq_worker_heartbeat_timestamp` | Gauge | `build_id`, `worker_id` | Unix timestamp of last worker heartbeat (per-worker metric, disabled with `--disable-per-worker-metrics`) |
 | `rspecq_workers_withdrawn` | Gauge | `build_id`, `worker_id` | Count of abnormal worker terminations (per-worker metric, disabled with `--disable-per-worker-metrics`) |
 
-> **Note**: The `--disable-per-worker-metrics` flag disables only the metrics with the `worker_id` label (`rspecq_worker_heartbeat_timestamp` and `rspecq_workers_withdrawn`), which can lead to high cardinality in environments with many workers. The aggregate metric `rspecq_worker_count` remains enabled as it only has the `build_id` label.
+> **Note**: The `--disable-per-worker-metrics` flag disables only the metrics with the `worker_id` label (`rspecq_worker_heartbeat_timestamp` and `rspecq_workers_withdrawn`), which can lead to high cardinality in environments with many workers. The aggregate metrics `rspecq_worker_count` and `rspecq_build_withdrawn_workers_count` remain enabled as they only have the `build_id` label.
 
 ### Timing Metrics
 

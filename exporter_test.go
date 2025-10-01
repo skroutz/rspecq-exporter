@@ -472,6 +472,11 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 			return testutil.ToFloat64(exporter.workerCount.WithLabelValues(buildID))
 		}},
 
+		// Withdrawn workers count (build-level metric)
+		{`rspecq_build_withdrawn_workers_count{build_id="e2e-test-build"}`, 2, func() float64 {
+			return testutil.ToFloat64(exporter.buildWithdrawnCount.WithLabelValues(buildID))
+		}},
+
 		// Global metrics
 		{`rspecq_global_timings_count`, 3, func() float64 {
 			return testutil.ToFloat64(exporter.globalTimingsCount)
@@ -597,6 +602,11 @@ func TestDisablePerWorkerMetrics(t *testing.T) {
 	// Verify worker_count is still present (aggregate metric)
 	if !strings.Contains(output, "rspecq_worker_count") {
 		t.Error("worker_count metric should still be present (not per-worker)")
+	}
+
+	// Verify build_withdrawn_workers_count is still present (build-level metric)
+	if !strings.Contains(output, "rspecq_build_withdrawn_workers_count") {
+		t.Error("build_withdrawn_workers_count metric should still be present (build-level metric)")
 	}
 
 	// Verify other metrics are still present
