@@ -38,23 +38,34 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 
 ### Command-line Options
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--redis-addr` | Redis server address | `localhost:6379` |
-| `--redis-password` | Redis password (if required) | `""` |
-| `--redis-db` | Redis database number | `0` |
-| `--listen-addr` | HTTP server listen address | `:9292` |
-| `--scrape-interval` | Interval for scraping Redis metrics | `15s` |
-| `--disable-per-worker-metrics` | Disable metrics about individual workers (reduces cardinality) | `false` |
-| `--build-id-regex` | Named capture group regex to extract labels from build IDs | `""` |
+All options can be configured using either command-line flags or environment variables. Environment variables provide an alternative to flags, especially useful in containerized environments.
+
+| Flag | Environment Variables | Default | Description |
+|------|---------------------|---------|-------------|
+| `--redis-addr` | `REDIS_ADDR`, `REDIS_ADDRESS` | `localhost:6379` | Redis server address |
+| `--redis-password` | `REDIS_PASSWORD` | `""` | Redis password (if required) |
+| `--redis-db` | `REDIS_DB`, `REDIS_DATABASE` | `0` | Redis database number |
+| `--listen-addr` | `LISTEN_ADDR`, `LISTEN_ADDRESS` | `:9292` | HTTP server listen address |
+| `--scrape-interval` | `SCRAPE_INTERVAL` | `15s` | Interval for scraping Redis metrics |
+| `--disable-per-worker-metrics` | `DISABLE_PER_WORKER_METRICS` | `false` | Disable metrics about individual workers (reduces cardinality) |
+| `--build-id-regex` | `BUILD_ID_REGEX` | `""` | Named capture group regex to extract labels from build IDs |
+
+**For detailed configuration documentation, see [CONFIGURATION.md](CONFIGURATION.md).**
 
 ### Example
 
 ```bash
-# Basic usage
+# Basic usage with flags
 ./rspecq-exporter --redis-addr=localhost:6379
 
-# With authentication and custom port
+# Using environment variables
+export REDIS_ADDR=redis.example.com:6379
+export REDIS_PASSWORD=secret
+export LISTEN_ADDR=:8080
+export SCRAPE_INTERVAL=10s
+./rspecq-exporter
+
+# With authentication and custom port (flags)
 ./rspecq-exporter \
   --redis-addr=redis.example.com:6379 \
   --redis-password=secret \
@@ -70,6 +81,13 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 ./rspecq-exporter \
   --redis-addr=localhost:6379 \
   --disable-per-worker-metrics
+
+# Docker with environment variables
+docker run -p 9292:9292 \
+  -e REDIS_ADDR=redis:6379 \
+  -e REDIS_PASSWORD=secret \
+  -e BUILD_ID_REGEX='(?P<project>[\w-]+)-(?P<branch>\w+)-(?P<build>\d+)' \
+  rspecq-exporter
 ```
 
 ## Advanced Features

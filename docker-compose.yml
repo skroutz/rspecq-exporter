@@ -18,7 +18,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: --redis-addr=redis:6379
+    environment:
+      - REDIS_ADDR=redis:6379
+      # - REDIS_PASSWORD=secret  # Uncomment if Redis requires auth
+      # - REDIS_DB=0
+      # - LISTEN_ADDR=:9292
+      # - SCRAPE_INTERVAL=15s
+      # - DISABLE_PER_WORKER_METRICS=false
+      # - BUILD_ID_REGEX=(?P<project>[\w-]+)-(?P<branch>\w+)-(?P<build>\d+)
     restart: unless-stopped
 
   prometheus:

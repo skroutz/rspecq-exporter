@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -13,26 +12,74 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-)
-
-var (
-	redisAddr               = flag.String("redis-addr", "localhost:6379", "Redis address")
-	redisPassword           = flag.String("redis-password", "", "Redis password")
-	redisDB                 = flag.Int("redis-db", 0, "Redis database number")
-	listenAddr              = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
-	scrapeInterval          = flag.Duration("scrape-interval", 15*time.Second, "Interval for scraping Redis metrics")
-	disablePerWorkerMetrics = flag.Bool("disable-per-worker-metrics", false, "Disable metrics about individual workers (reduces cardinality)")
-	buildIDRegex            = flag.String("build-id-regex", "", "Named capture group regex to extract labels from build IDs (e.g., '(?P<project>\\w+)-(?P<branch>\\w+)-(?P<build>\\d+)')")
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	flag.Parse()
+	app := &cli.App{
+		Name:  "rspecq-exporter",
+		Usage: "Prometheus exporter for RSpecQ metrics from Redis",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "redis-addr",
+				Value:   "localhost:6379",
+				Usage:   "Redis address",
+				EnvVars: []string{"REDIS_ADDR", "REDIS_ADDRESS"},
+			},
+			&cli.StringFlag{
+				Name:    "redis-password",
+				Value:   "",
+				Usage:   "Redis password",
+				EnvVars: []string{"REDIS_PASSWORD"},
+			},
+			&cli.IntFlag{
+				Name:    "redis-db",
+				Value:   0,
+				Usage:   "Redis database number",
+				EnvVars: []string{"REDIS_DB", "REDIS_DATABASE"},
+			},
+			&cli.StringFlag{
+				Name:    "listen-addr",
+				Value:   ":9292",
+				Usage:   "Address to listen on for metrics",
+				EnvVars: []string{"LISTEN_ADDR", "LISTEN_ADDRESS"},
+			},
+			&cli.DurationFlag{
+				Name:    "scrape-interval",
+				Value:   15 * time.Second,
+				Usage:   "Interval for scraping Redis metrics",
+				EnvVars: []string{"SCRAPE_INTERVAL"},
+			},
+			&cli.BoolFlag{
+				Name:    "disable-per-worker-metrics",
+				Value:   false,
+				Usage:   "Disable metrics about individual workers (reduces cardinality)",
+				EnvVars: []string{"DISABLE_PER_WORKER_METRICS"},
+			},
+			&cli.StringFlag{
+				Name:    "build-id-regex",
+				Value:   "",
+				Usage:   "Named capture group regex to extract labels from build IDs (e.g., '(?P<project>\\w+)-(?P<branch>\\w+)-(?P<build>\\d+)')",
+				EnvVars: []string{"BUILD_ID_REGEX"},
+			},
+		},
+		Action: func(c *cli.Context) error {
+			return run(c)
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(c *cli.Context) error {
 
 	// Create Redis client
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     *redisAddr,
-		Password: *redisPassword,
-		DB:       *redisDB,
+		Addr:     c.String("redis-addr"),
+		Password: c.String("redis-password"),
+		DB:       c.Int("redis-db"),
 	})
 
 	ctx := context.Background()
@@ -41,10 +88,10 @@ func main() {
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
-	log.Printf("Successfully connected to Redis at %s", *redisAddr)
+	log.Printf("Successfully connected to Redis at %s", c.String("redis-addr"))
 
 	// Create and register the exporter
-	exporter, err := NewRSpecQExporter(rdb, *disablePerWorkerMetrics, *buildIDRegex)
+	exporter, err := NewRSpecQExporter(rdb, c.Bool("disable-per-worker-metrics"), c.String("build-id-regex"))
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
@@ -63,13 +110,13 @@ func main() {
 	})
 
 	// Start background scraper
-	go exporter.StartScraper(ctx, *scrapeInterval)
+	go exporter.StartScraper(ctx, c.Duration("scrape-interval"))
 
 	// Setup graceful shutdown
-	srv := &http.Server{Addr: *listenAddr}
+	srv := &http.Server{Addr: c.String("listen-addr")}
 
 	go func() {
-		log.Printf("Starting HTTP server on %s", *listenAddr)
+		log.Printf("Starting HTTP server on %s", c.String("listen-addr"))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
 		}
@@ -93,4 +140,5 @@ func main() {
 	}
 
 	log.Println("Exporter stopped")
+	return nil
 }
