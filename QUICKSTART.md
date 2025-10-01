@@ -151,9 +151,9 @@ Once metrics are being collected, try these Prometheus queries:
 
 ### Build Progress
 ```promql
-100 * rspecq_build_queue_processed{build_id="your-build-id"} / 
-  (rspecq_build_queue_processed{build_id="your-build-id"} + 
-   rspecq_build_queue_unprocessed{build_id="your-build-id"} + 
+100 * rspecq_build_queue_processed{build_id="your-build-id"} /
+  (rspecq_build_queue_processed{build_id="your-build-id"} +
+   rspecq_build_queue_unprocessed{build_id="your-build-id"} +
    rspecq_build_queue_running{build_id="your-build-id"})
 ```
 

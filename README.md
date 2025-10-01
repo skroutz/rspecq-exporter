@@ -130,7 +130,7 @@ count(rspecq_build_queue_unprocessed > 0)
 
 ### Build Progress (Percentage Complete)
 ```promql
-100 * rspecq_build_queue_processed / 
+100 * rspecq_build_queue_processed /
   (rspecq_build_queue_processed + rspecq_build_queue_unprocessed + rspecq_build_queue_running)
 ```
 

@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	redisAddr     = flag.String("redis-addr", "localhost:6379", "Redis address")
-	redisPassword = flag.String("redis-password", "", "Redis password")
-	redisDB       = flag.Int("redis-db", 0, "Redis database number")
-	listenAddr    = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
+	redisAddr      = flag.String("redis-addr", "localhost:6379", "Redis address")
+	redisPassword  = flag.String("redis-password", "", "Redis password")
+	redisDB        = flag.Int("redis-db", 0, "Redis database number")
+	listenAddr     = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
 	scrapeInterval = flag.Duration("scrape-interval", 15*time.Second, "Interval for scraping Redis metrics")
 )
 
@@ -34,7 +34,7 @@ func main() {
 	})
 
 	ctx := context.Background()
-	
+
 	// Test Redis connection
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
@@ -62,7 +62,7 @@ func main() {
 
 	// Setup graceful shutdown
 	srv := &http.Server{Addr: *listenAddr}
-	
+
 	go func() {
 		log.Printf("Starting HTTP server on %s", *listenAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -78,14 +78,14 @@ func main() {
 	log.Println("Shutting down...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
-	
+
 	if err := rdb.Close(); err != nil {
 		log.Printf("Redis close error: %v", err)
 	}
-	
+
 	log.Println("Exporter stopped")
 }

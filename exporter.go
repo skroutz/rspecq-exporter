@@ -16,6 +16,12 @@ const (
 	namespace = "rspecq"
 )
 
+// Build represents a single RSpecQ build and encapsulates build-specific logic
+type Build struct {
+	id  string
+	rdb *redis.Client
+}
+
 // RSpecQExporter collects metrics from RSpecQ Redis instance
 type RSpecQExporter struct {
 	rdb   *redis.Client
@@ -34,24 +40,24 @@ type RSpecQExporter struct {
 	buildFailFast         *prometheus.GaugeVec
 
 	// Worker-level metrics
-	workerHeartbeats      *prometheus.GaugeVec
-	workerCount           *prometheus.GaugeVec
-	workersWithdrawn      *prometheus.GaugeVec
+	workerHeartbeats *prometheus.GaugeVec
+	workerCount      *prometheus.GaugeVec
+	workersWithdrawn *prometheus.GaugeVec
 
 	// Timing metrics
-	buildElectedMasterAt  *prometheus.GaugeVec
-	buildReadyAt          *prometheus.GaugeVec
-	buildFinishedAt       *prometheus.GaugeVec
-	buildDuration         *prometheus.GaugeVec
+	buildElectedMasterAt *prometheus.GaugeVec
+	buildReadyAt         *prometheus.GaugeVec
+	buildFinishedAt      *prometheus.GaugeVec
+	buildDuration        *prometheus.GaugeVec
 
 	// Global metrics
-	globalTimingsCount    prometheus.Gauge
-	buildTimesCount       prometheus.Gauge
+	globalTimingsCount prometheus.Gauge
+	buildTimesCount    prometheus.Gauge
 
 	// Scrape metrics
-	scrapeSuccess         prometheus.Gauge
-	scrapeDuration        prometheus.Gauge
-	lastScrapeTime        prometheus.Gauge
+	scrapeSuccess  prometheus.Gauge
+	scrapeDuration prometheus.Gauge
+	lastScrapeTime prometheus.Gauge
 
 	// Cached data for metrics
 	activeBuilds map[string]bool
@@ -367,21 +373,24 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 }
 
 // discoverBuilds finds all active builds by scanning Redis keys
+// Builds are discovered by checking for <build_id>:status keys
 func (e *RSpecQExporter) discoverBuilds(ctx context.Context) ([]string, error) {
 	builds := make(map[string]bool)
-	
-	// Scan for build-specific keys
-	// Pattern: <build_id>:*
-	iter := e.rdb.Scan(ctx, 0, "*:queue:*", 1000).Iterator()
-	for iter.Next(ctx) {
-		key := iter.Val()
+
+	// Scan for status keys: <build_id>:status
+	// This is the only method for discovering active builds
+	statusIter := e.rdb.Scan(ctx, 0, "*:status", 1000).Iterator()
+	for statusIter.Next(ctx) {
+		key := statusIter.Val()
+		// Extract build ID from "<build_id>:status"
 		parts := strings.Split(key, ":")
-		if len(parts) >= 2 {
-			buildID := parts[0]
+		if len(parts) >= 2 && parts[len(parts)-1] == "status" {
+			// Join all parts except the last one (which is "status")
+			buildID := strings.Join(parts[:len(parts)-1], ":")
 			builds[buildID] = true
 		}
 	}
-	if err := iter.Err(); err != nil {
+	if err := statusIter.Err(); err != nil {
 		return nil, err
 	}
 
@@ -389,68 +398,134 @@ func (e *RSpecQExporter) discoverBuilds(ctx context.Context) ([]string, error) {
 	for buildID := range builds {
 		buildList = append(buildList, buildID)
 	}
-	
+
 	return buildList, nil
 }
 
 // collectBuildMetrics collects all metrics for a specific build
 func (e *RSpecQExporter) collectBuildMetrics(ctx context.Context, buildID string) error {
-	// Queue metrics
+	build := Build{
+		id:  buildID,
+		rdb: e.rdb,
+	}
+	return build.CollectMetrics(ctx, e)
+}
+
+// CollectMetrics collects all metrics for this build and sets them on the exporter
+// Uses Redis MULTI/EXEC to ensure atomic collection of all build metrics
+func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
+	buildID := b.id
+
+	// Define all keys
 	unprocessedKey := buildID + ":queue:unprocessed"
 	runningKey := buildID + ":queue:running"
 	processedKey := buildID + ":queue:processed"
 	lostKey := buildID + ":queue:lost"
-	
-	unprocessed, _ := e.rdb.LLen(ctx, unprocessedKey).Result()
-	e.buildQueueUnprocessed.WithLabelValues(buildID).Set(float64(unprocessed))
-	
-	running, _ := e.rdb.HLen(ctx, runningKey).Result()
-	e.buildQueueRunning.WithLabelValues(buildID).Set(float64(running))
-	
-	processed, _ := e.rdb.SCard(ctx, processedKey).Result()
-	e.buildQueueProcessed.WithLabelValues(buildID).Set(float64(processed))
-	
-	lost, _ := e.rdb.ZCard(ctx, lostKey).Result()
-	e.buildQueueLost.WithLabelValues(buildID).Set(float64(lost))
-
-	// Example metrics
 	exampleCountKey := buildID + ":example_count"
 	failuresKey := buildID + ":example_failures"
 	errorsKey := buildID + ":errors"
 	requeuesKey := buildID + ":requeues"
-	
-	exampleCount, _ := e.rdb.Get(ctx, exampleCountKey).Int64()
-	e.buildExampleCount.WithLabelValues(buildID).Set(float64(exampleCount))
-	
-	failures, _ := e.rdb.HLen(ctx, failuresKey).Result()
-	e.buildExampleFailures.WithLabelValues(buildID).Set(float64(failures))
-	
-	errors, _ := e.rdb.HLen(ctx, errorsKey).Result()
-	e.buildNonExampleErrors.WithLabelValues(buildID).Set(float64(errors))
-	
-	requeues, _ := e.rdb.HLen(ctx, requeuesKey).Result()
-	e.buildRequeues.WithLabelValues(buildID).Set(float64(requeues))
+	statusKey := buildID + ":queue:status"
+	finishedKey := buildID + ":queue:finished_at"
+	configKey := buildID + ":queue:config"
+	heartbeatsKey := buildID + ":worker_heartbeats"
+	withdrawnKey := buildID + ":workers_withdrawn"
+	electedMasterKey := buildID + ":queue:elected_master_at"
+	readyKey := buildID + ":queue:ready_at"
+
+	// Execute all commands atomically using pipeline with MULTI/EXEC
+	pipe := b.rdb.TxPipeline()
+
+	// Queue metrics
+	unprocessedCmd := pipe.LLen(ctx, unprocessedKey)
+	runningCmd := pipe.HLen(ctx, runningKey)
+	processedCmd := pipe.SCard(ctx, processedKey)
+	lostCmd := pipe.ZCard(ctx, lostKey)
+
+	// Example metrics
+	exampleCountCmd := pipe.Get(ctx, exampleCountKey)
+	failuresCmd := pipe.HLen(ctx, failuresKey)
+	errorsCmd := pipe.HLen(ctx, errorsKey)
+	requeuesCmd := pipe.HLen(ctx, requeuesKey)
 
 	// Status metrics
-	statusKey := buildID + ":queue:status"
-	status, _ := e.rdb.Get(ctx, statusKey).Result()
-	
+	statusCmd := pipe.Get(ctx, statusKey)
+	finishedExistsCmd := pipe.Exists(ctx, finishedKey)
+
+	// Fail-fast config
+	failFastCmd := pipe.HGet(ctx, configKey, "fail_fast")
+
+	// Worker metrics
+	heartbeatsCmd := pipe.ZRangeWithScores(ctx, heartbeatsKey, 0, -1)
+	withdrawnCmd := pipe.HGetAll(ctx, withdrawnKey)
+
+	// Timing metrics
+	electedMasterCmd := pipe.Get(ctx, electedMasterKey)
+	readyAtCmd := pipe.Get(ctx, readyKey)
+	finishedAtCmd := pipe.Get(ctx, finishedKey)
+
+	// Execute the transaction
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return fmt.Errorf("failed to execute redis transaction: %w", err)
+	}
+
+	// Process results - Queue metrics
+	if unprocessed, err := unprocessedCmd.Result(); err == nil {
+		e.buildQueueUnprocessed.WithLabelValues(buildID).Set(float64(unprocessed))
+	}
+
+	if running, err := runningCmd.Result(); err == nil {
+		e.buildQueueRunning.WithLabelValues(buildID).Set(float64(running))
+	}
+
+	if processed, err := processedCmd.Result(); err == nil {
+		e.buildQueueProcessed.WithLabelValues(buildID).Set(float64(processed))
+	}
+
+	if lost, err := lostCmd.Result(); err == nil {
+		e.buildQueueLost.WithLabelValues(buildID).Set(float64(lost))
+	}
+
+	// Process results - Example metrics
+	if exampleCount, err := exampleCountCmd.Int64(); err == nil {
+		e.buildExampleCount.WithLabelValues(buildID).Set(float64(exampleCount))
+	}
+
+	failures := int64(0)
+	if f, err := failuresCmd.Result(); err == nil {
+		failures = f
+		e.buildExampleFailures.WithLabelValues(buildID).Set(float64(failures))
+	}
+
+	errors := int64(0)
+	if er, err := errorsCmd.Result(); err == nil {
+		errors = er
+		e.buildNonExampleErrors.WithLabelValues(buildID).Set(float64(errors))
+	}
+
+	if requeues, err := requeuesCmd.Result(); err == nil {
+		e.buildRequeues.WithLabelValues(buildID).Set(float64(requeues))
+	}
+
+	// Process results - Status metrics
+	status, _ := statusCmd.Result()
+
 	// Set status gauges
 	e.buildStatus.WithLabelValues(buildID, "initializing").Set(0)
 	e.buildStatus.WithLabelValues(buildID, "ready").Set(0)
 	e.buildStatus.WithLabelValues(buildID, "finished").Set(0)
 	e.buildStatus.WithLabelValues(buildID, "failed").Set(0)
-	
+
 	switch status {
 	case "initializing":
 		e.buildStatus.WithLabelValues(buildID, "initializing").Set(1)
 	case "ready":
 		e.buildStatus.WithLabelValues(buildID, "ready").Set(1)
 	}
-	
+
 	// Check if finished or failed
-	finishedKey := buildID + ":queue:finished_at"
-	if exists, _ := e.rdb.Exists(ctx, finishedKey).Result(); exists > 0 {
+	if exists, _ := finishedExistsCmd.Result(); exists > 0 {
 		if failures > 0 || errors > 0 {
 			e.buildStatus.WithLabelValues(buildID, "failed").Set(1)
 		} else {
@@ -458,46 +533,44 @@ func (e *RSpecQExporter) collectBuildMetrics(ctx context.Context, buildID string
 		}
 	}
 
-	// Fail-fast config
-	configKey := buildID + ":queue:config"
-	failFast, _ := e.rdb.HGet(ctx, configKey, "fail_fast").Int64()
-	e.buildFailFast.WithLabelValues(buildID).Set(float64(failFast))
-
-	// Worker metrics
-	heartbeatsKey := buildID + ":worker_heartbeats"
-	heartbeats, _ := e.rdb.ZRangeWithScores(ctx, heartbeatsKey, 0, -1).Result()
-	e.workerCount.WithLabelValues(buildID).Set(float64(len(heartbeats)))
-	
-	for _, hb := range heartbeats {
-		workerID := hb.Member.(string)
-		e.workerHeartbeats.WithLabelValues(buildID, workerID).Set(hb.Score)
+	// Process results - Fail-fast config
+	if failFast, err := failFastCmd.Int64(); err == nil {
+		e.buildFailFast.WithLabelValues(buildID).Set(float64(failFast))
 	}
 
-	// Workers withdrawn
-	withdrawnKey := buildID + ":workers_withdrawn"
-	withdrawn, _ := e.rdb.HGetAll(ctx, withdrawnKey).Result()
-	for workerID, count := range withdrawn {
-		if val, err := parseFloat(count); err == nil {
-			e.workersWithdrawn.WithLabelValues(buildID, workerID).Set(val)
+	// Process results - Worker metrics
+	if heartbeats, err := heartbeatsCmd.Result(); err == nil {
+		e.workerCount.WithLabelValues(buildID).Set(float64(len(heartbeats)))
+		for _, hb := range heartbeats {
+			workerID := hb.Member.(string)
+			e.workerHeartbeats.WithLabelValues(buildID, workerID).Set(hb.Score)
 		}
 	}
 
-	// Timing metrics
-	electedMasterKey := buildID + ":queue:elected_master_at"
-	if electedAt, err := e.rdb.Get(ctx, electedMasterKey).Int64(); err == nil {
+	if withdrawn, err := withdrawnCmd.Result(); err == nil {
+		for workerID, count := range withdrawn {
+			if val, err := parseFloat(count); err == nil {
+				e.workersWithdrawn.WithLabelValues(buildID, workerID).Set(val)
+			}
+		}
+	}
+
+	// Process results - Timing metrics
+	if electedAt, err := electedMasterCmd.Int64(); err == nil {
 		e.buildElectedMasterAt.WithLabelValues(buildID).Set(float64(electedAt))
 	}
-	
-	readyKey := buildID + ":queue:ready_at"
-	if readyAt, err := e.rdb.Get(ctx, readyKey).Int64(); err == nil {
+
+	readyAt := int64(0)
+	if ra, err := readyAtCmd.Int64(); err == nil {
+		readyAt = ra
 		e.buildReadyAt.WithLabelValues(buildID).Set(float64(readyAt))
 	}
-	
-	if finishedAt, err := e.rdb.Get(ctx, finishedKey).Int64(); err == nil {
+
+	if finishedAt, err := finishedAtCmd.Int64(); err == nil {
 		e.buildFinishedAt.WithLabelValues(buildID).Set(float64(finishedAt))
-		
+
 		// Calculate duration if we have ready_at
-		if readyAt, err := e.rdb.Get(ctx, readyKey).Int64(); err == nil {
+		if readyAt > 0 {
 			duration := finishedAt - readyAt
 			e.buildDuration.WithLabelValues(buildID).Set(float64(duration))
 		}
@@ -511,11 +584,11 @@ func (e *RSpecQExporter) collectGlobalMetrics(ctx context.Context) error {
 	// Global timings
 	timingsCount, _ := e.rdb.ZCard(ctx, "timings").Result()
 	e.globalTimingsCount.Set(float64(timingsCount))
-	
+
 	// Build times
 	buildTimesCount, _ := e.rdb.LLen(ctx, "build_times").Result()
 	e.buildTimesCount.Set(float64(buildTimesCount))
-	
+
 	return nil
 }
 

@@ -122,7 +122,7 @@ func TestCollectBuildMetrics(t *testing.T) {
         {"active build", "build-123", 10, false},
         {"empty build", "build-empty", 0, false},
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             // Test implementation
