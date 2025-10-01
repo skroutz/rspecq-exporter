@@ -430,20 +430,19 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 }
 
 // discoverBuilds finds all active builds by scanning Redis keys
-// Builds are discovered by checking for <build_id>:status keys
+// Builds are discovered by checking for <build_id>:queue:status keys
 func (e *RSpecQExporter) discoverBuilds(ctx context.Context) ([]string, error) {
 	builds := make(map[string]bool)
 
-	// Scan for status keys: <build_id>:status
+	// Scan for status keys: <build_id>:queue:status
 	// This is the only method for discovering active builds
-	statusIter := e.rdb.Scan(ctx, 0, "*:status", 1000).Iterator()
+	statusIter := e.rdb.Scan(ctx, 0, "*:queue:status", 1000).Iterator()
 	for statusIter.Next(ctx) {
 		key := statusIter.Val()
-		// Extract build ID from "<build_id>:status"
-		parts := strings.Split(key, ":")
-		if len(parts) >= 2 && parts[len(parts)-1] == "status" {
-			// Join all parts except the last one (which is "status")
-			buildID := strings.Join(parts[:len(parts)-1], ":")
+		// Extract build ID from "<build_id>:queue:status"
+		// Remove the ":queue:status" suffix to get the build ID
+		if strings.HasSuffix(key, ":queue:status") {
+			buildID := strings.TrimSuffix(key, ":queue:status")
 			builds[buildID] = true
 		}
 	}

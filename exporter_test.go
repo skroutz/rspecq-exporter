@@ -135,7 +135,7 @@ func TestDiscoverBuilds_MultipleBuilds(t *testing.T) {
 
 	// Create status keys for multiple builds
 	for _, buildID := range buildIDs {
-		err := rdb.Set(ctx, buildID+":status", "ready", 0).Err()
+		err := rdb.Set(ctx, buildID+":queue:status", "ready", 0).Err()
 		if err != nil {
 			t.Fatalf("Failed to create status key for %s: %v", buildID, err)
 		}
@@ -175,7 +175,7 @@ func TestDiscoverBuilds_WithStatusKeys(t *testing.T) {
 	buildID := "test-build-with-status"
 
 	// Create status key and other data
-	err := rdb.Set(ctx, buildID+":status", "initializing", 0).Err()
+	err := rdb.Set(ctx, buildID+":queue:status", "initializing", 0).Err()
 	if err != nil {
 		t.Fatalf("Failed to create status key: %v", err)
 	}
@@ -279,16 +279,13 @@ func setupTestBuild(t *testing.T, ctx context.Context, rdb *redis.Client, buildI
 	t.Helper()
 
 	// Status key - REQUIRED for build discovery
-	rdb.Set(ctx, buildID+":status", "ready", 0)
+	rdb.Set(ctx, buildID+":queue:status", "ready", 0)
 
 	// Queue data
 	rdb.LPush(ctx, buildID+":queue:unprocessed", "job1", "job2")
 	rdb.HSet(ctx, buildID+":queue:running", "worker-1", "job3")
 	rdb.SAdd(ctx, buildID+":queue:processed", "job4", "job5", "job6")
 	rdb.ZAdd(ctx, buildID+":queue:lost", &redis.Z{Score: 1.0, Member: "lost-job"})
-
-	// Queue status (separate from discovery status key)
-	rdb.Set(ctx, buildID+":queue:status", "ready", 0)
 
 	// Example metrics
 	rdb.Set(ctx, buildID+":example_count", "42", 0)
@@ -346,8 +343,8 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	// Setup comprehensive test data
 	baseTime := time.Now().Unix()
 
-	// Status key - REQUIRED for build discovery (this is the ONLY status key we should create)
-	rdb.Set(ctx, buildID+":status", "ready", 0)
+	// Status key - REQUIRED for build discovery
+	rdb.Set(ctx, buildID+":queue:status", "ready", 0)
 
 	// Queue data - comprehensive counts
 	rdb.LPush(ctx, buildID+":queue:unprocessed", "job1", "job2", "job3")
