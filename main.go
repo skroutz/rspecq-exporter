@@ -22,6 +22,7 @@ var (
 	listenAddr              = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
 	scrapeInterval          = flag.Duration("scrape-interval", 15*time.Second, "Interval for scraping Redis metrics")
 	disablePerWorkerMetrics = flag.Bool("disable-per-worker-metrics", false, "Disable metrics about individual workers (reduces cardinality)")
+	buildIDRegex            = flag.String("build-id-regex", "", "Named capture group regex to extract labels from build IDs (e.g., '(?P<project>\\w+)-(?P<branch>\\w+)-(?P<build>\\d+)')")
 )
 
 func main() {
@@ -43,7 +44,10 @@ func main() {
 	log.Printf("Successfully connected to Redis at %s", *redisAddr)
 
 	// Create and register the exporter
-	exporter := NewRSpecQExporter(rdb, *disablePerWorkerMetrics)
+	exporter, err := NewRSpecQExporter(rdb, *disablePerWorkerMetrics, *buildIDRegex)
+	if err != nil {
+		log.Fatalf("Failed to create exporter: %v", err)
+	}
 	prometheus.MustRegister(exporter)
 
 	// Setup HTTP server

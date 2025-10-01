@@ -46,6 +46,7 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 | `--listen-addr` | HTTP server listen address | `:9292` |
 | `--scrape-interval` | Interval for scraping Redis metrics | `15s` |
 | `--disable-per-worker-metrics` | Disable metrics about individual workers (reduces cardinality) | `false` |
+| `--build-id-regex` | Named capture group regex to extract labels from build IDs | `""` |
 
 ### Example
 
@@ -58,6 +59,34 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
   --redis-addr=redis.example.com:6379 \
   --redis-password=secret \
   --listen-addr=:8080 \
+  --scrape-interval=10s
+
+# With build ID regex to extract custom labels
+./rspecq-exporter \
+  --redis-addr=localhost:6379 \
+  --build-id-regex='(?P<project>[\w-]+)-(?P<branch>\w+)-(?P<build>\d+)'
+
+# Disable per-worker metrics to reduce cardinality
+./rspecq-exporter \
+  --redis-addr=localhost:6379 \
+  --disable-per-worker-metrics
+```
+
+## Advanced Features
+
+### Build ID Label Extraction
+
+The `--build-id-regex` flag allows you to parse build IDs using named capture groups and extract custom labels. This enables more powerful Prometheus queries and aggregations.
+
+For example, if your build IDs follow the pattern `my-project-main-12345`, you can use:
+
+```bash
+./rspecq-exporter --build-id-regex='(?P<project>[\w-]+)-(?P<branch>\w+)-(?P<build>\d+)'
+```
+
+This will add `project`, `branch`, and `build` labels to all build-level metrics, in addition to the standard `build_id` label.
+
+**See [BUILD_ID_REGEX.md](BUILD_ID_REGEX.md) for detailed documentation and examples.**
   --scrape-interval=10s
 
 # Disable per-worker metrics to reduce cardinality

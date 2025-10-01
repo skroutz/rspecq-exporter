@@ -19,7 +19,10 @@ func TestNewRSpecQExporter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 
 	if exporter == nil {
 		t.Fatal("Expected non-nil exporter")
@@ -39,7 +42,10 @@ func TestExporterImplementsCollector(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 
 	// Check that exporter implements prometheus.Collector
 	var _ prometheus.Collector = exporter
@@ -104,7 +110,10 @@ func TestDiscoverBuilds_NoBuilds(t *testing.T) {
 	rdb, _, cleanup := setupTestRedis(t)
 	defer cleanup()
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 	ctx := context.Background()
 
 	builds, err := exporter.discoverBuilds(ctx)
@@ -132,7 +141,10 @@ func TestDiscoverBuilds_MultipleBuilds(t *testing.T) {
 		}
 	}
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 	builds, err := exporter.discoverBuilds(ctx)
 	if err != nil {
 		t.Fatalf("discoverBuilds failed: %v", err)
@@ -172,7 +184,10 @@ func TestDiscoverBuilds_WithStatusKeys(t *testing.T) {
 	rdb.LPush(ctx, buildID+":queue:unprocessed", "job1")
 	rdb.SAdd(ctx, buildID+":queue:processed", "job2", "job3")
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 	builds, err := exporter.discoverBuilds(ctx)
 	if err != nil {
 		t.Fatalf("discoverBuilds failed: %v", err)
@@ -197,7 +212,10 @@ func TestScrape_WithBuilds(t *testing.T) {
 	// Set up a complete build with various metrics
 	setupTestBuild(t, ctx, rdb, buildID)
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 
 	// Run scrape
 	exporter.scrape(ctx)
@@ -229,7 +247,10 @@ func TestPeriodicScraping(t *testing.T) {
 	buildID := "periodic-test-build"
 	setupTestBuild(t, ctx, rdb, buildID)
 
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 
 	// Start scraper with short interval
 	go exporter.StartScraper(ctx, 100*time.Millisecond)
@@ -382,7 +403,10 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	rdb.RPush(ctx, "build_times", "120", "95")
 
 	// Create exporter and register with a custom registry for testing
-	exporter := NewRSpecQExporter(rdb, false)
+	exporter, err := NewRSpecQExporter(rdb, false, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
 
@@ -567,7 +591,10 @@ func TestDisablePerWorkerMetrics(t *testing.T) {
 	setupTestBuild(t, ctx, rdb, buildID)
 
 	// Create exporter with per-worker metrics disabled
-	exporter := NewRSpecQExporter(rdb, true)
+	exporter, err := NewRSpecQExporter(rdb, true, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
 

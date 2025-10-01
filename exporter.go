@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ type RSpecQExporter struct {
 	rdb                     *redis.Client
 	mutex                   sync.RWMutex
 	disablePerWorkerMetrics bool
+	buildIDRegex            *regexp.Regexp
+	labelNames              []string
 
 	// Build-level metrics
 	buildQueueUnprocessed *prometheus.GaugeVec
@@ -66,175 +69,197 @@ type RSpecQExporter struct {
 }
 
 // NewRSpecQExporter creates a new RSpecQ exporter
-func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool) *RSpecQExporter {
+func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDRegexPattern string) (*RSpecQExporter, error) {
 	exporter := &RSpecQExporter{
 		rdb:                     rdb,
 		disablePerWorkerMetrics: disablePerWorkerMetrics,
-		buildQueueUnprocessed: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_queue_unprocessed",
-				Help:      "Number of unprocessed jobs in the queue for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildQueueRunning: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_queue_running",
-				Help:      "Number of jobs currently running for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildQueueProcessed: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_queue_processed",
-				Help:      "Number of processed jobs for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildQueueLost: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_queue_lost",
-				Help:      "Number of lost jobs for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildExampleCount: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_example_count",
-				Help:      "Total number of examples executed for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildExampleFailures: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_example_failures",
-				Help:      "Number of example failures for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildNonExampleErrors: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_non_example_errors",
-				Help:      "Number of non-example errors (e.g., syntax errors) for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildRequeues: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_requeues",
-				Help:      "Number of requeued jobs for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildStatus: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_status",
-				Help:      "Build status (0=initializing, 1=ready, 2=finished, 3=failed)",
-			},
-			[]string{"build_id", "status"},
-		),
-		buildFailFast: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_fail_fast",
-				Help:      "Fail-fast threshold for a build (0 means disabled)",
-			},
-			[]string{"build_id"},
-		),
-		buildWithdrawnCount: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_withdrawn_workers_count",
-				Help:      "Total number of withdrawn workers for a build",
-			},
-			[]string{"build_id"},
-		),
-		workerCount: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "worker_count",
-				Help:      "Number of active workers for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildElectedMasterAt: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_elected_master_at",
-				Help:      "Timestamp when master worker was elected for a build",
-			},
-			[]string{"build_id"},
-		),
-		buildReadyAt: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_ready_at",
-				Help:      "Timestamp when build queue was marked ready",
-			},
-			[]string{"build_id"},
-		),
-		buildFinishedAt: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_finished_at",
-				Help:      "Timestamp when build finished",
-			},
-			[]string{"build_id"},
-		),
-		buildDuration: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_duration_seconds",
-				Help:      "Build duration in seconds (from ready to finished)",
-			},
-			[]string{"build_id"},
-		),
-		globalTimingsCount: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "global_timings_count",
-				Help:      "Number of entries in the global timings key",
-			},
-		),
-		buildTimesCount: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "build_times_count",
-				Help:      "Number of build time entries stored",
-			},
-		),
-		scrapeSuccess: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "scrape_success",
-				Help:      "Whether the last scrape was successful (1 = success, 0 = failure)",
-			},
-		),
-		scrapeDuration: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "scrape_duration_seconds",
-				Help:      "Duration of the last scrape in seconds",
-			},
-		),
-		lastScrapeTime: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "last_scrape_timestamp",
-				Help:      "Unix timestamp of the last scrape",
-			},
-		),
-		activeBuilds: make(map[string]bool),
+		activeBuilds:            make(map[string]bool),
 	}
+
+	// Parse and validate regex if provided
+	if buildIDRegexPattern != "" {
+		re, err := regexp.Compile(buildIDRegexPattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid build-id-regex: %w", err)
+		}
+		exporter.buildIDRegex = re
+
+		// Extract label names from named capture groups
+		labelNames := []string{"build_id"} // Always include build_id
+		for _, name := range re.SubexpNames() {
+			if name != "" {
+				labelNames = append(labelNames, name)
+			}
+		}
+		exporter.labelNames = labelNames
+	} else {
+		// Default: only build_id label
+		exporter.labelNames = []string{"build_id"}
+	}
+
+	exporter.buildQueueUnprocessed = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_unprocessed",
+			Help:      "Number of unprocessed jobs in the queue for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildQueueRunning = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_running",
+			Help:      "Number of jobs currently running for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildQueueProcessed = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_processed",
+			Help:      "Number of processed jobs for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildQueueLost = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_lost",
+			Help:      "Number of lost jobs for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildExampleCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_example_count",
+			Help:      "Total number of examples executed for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildExampleFailures = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_example_failures",
+			Help:      "Number of example failures for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildNonExampleErrors = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_non_example_errors",
+			Help:      "Number of non-example errors (e.g., syntax errors) for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildRequeues = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_requeues",
+			Help:      "Number of requeued jobs for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_status",
+			Help:      "Build status (0=initializing, 1=ready, 2=finished, 3=failed)",
+		},
+		append(exporter.labelNames, "status"),
+	)
+	exporter.buildFailFast = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_fail_fast",
+			Help:      "Fail-fast threshold for a build (0 means disabled)",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildWithdrawnCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_withdrawn_workers_count",
+			Help:      "Total number of withdrawn workers for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.workerCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "worker_count",
+			Help:      "Number of active workers for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildElectedMasterAt = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_elected_master_at",
+			Help:      "Timestamp when master worker was elected for a build",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildReadyAt = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_ready_at",
+			Help:      "Timestamp when build queue was marked ready",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildFinishedAt = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_finished_at",
+			Help:      "Timestamp when build finished",
+		},
+		exporter.labelNames,
+	)
+	exporter.buildDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_duration_seconds",
+			Help:      "Build duration in seconds (from ready to finished)",
+		},
+		exporter.labelNames,
+	)
+	exporter.globalTimingsCount = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "global_timings_count",
+			Help:      "Number of entries in the global timings key",
+		},
+	)
+	exporter.buildTimesCount = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_times_count",
+			Help:      "Number of build time entries stored",
+		},
+	)
+	exporter.scrapeSuccess = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "scrape_success",
+			Help:      "Whether the last scrape was successful (1 = success, 0 = failure)",
+		},
+	)
+	exporter.scrapeDuration = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "scrape_duration_seconds",
+			Help:      "Duration of the last scrape in seconds",
+		},
+	)
+	exporter.lastScrapeTime = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "last_scrape_timestamp",
+			Help:      "Unix timestamp of the last scrape",
+		},
+	)
 
 	// Conditionally initialize per-worker metrics
 	if !disablePerWorkerMetrics {
@@ -256,7 +281,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool) *RSpecQE
 		)
 	}
 
-	return exporter
+	return exporter, nil
 }
 
 // Describe implements prometheus.Collector
@@ -443,6 +468,26 @@ func (e *RSpecQExporter) collectBuildMetrics(ctx context.Context, buildID string
 	return build.CollectMetrics(ctx, e)
 }
 
+// extractLabels extracts label values from a build ID using the configured regex
+// Returns a map where keys are label names and values are the extracted values
+// Always includes "build_id" as a label
+func (e *RSpecQExporter) extractLabels(buildID string) prometheus.Labels {
+	labels := prometheus.Labels{"build_id": buildID}
+
+	if e.buildIDRegex != nil {
+		matches := e.buildIDRegex.FindStringSubmatch(buildID)
+		if matches != nil {
+			for i, name := range e.buildIDRegex.SubexpNames() {
+				if i > 0 && i < len(matches) && name != "" {
+					labels[name] = matches[i]
+				}
+			}
+		}
+	}
+
+	return labels
+}
+
 // CollectMetrics collects all metrics for this build and sets them on the exporter
 // Uses Redis MULTI/EXEC to ensure atomic collection of all build metrics
 func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
@@ -502,77 +547,92 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 		return fmt.Errorf("failed to execute redis transaction: %w", err)
 	}
 
+	// Extract labels for this build
+	labels := e.extractLabels(buildID)
+
 	// Process results - Queue metrics
 	if unprocessed, err := unprocessedCmd.Result(); err == nil {
-		e.buildQueueUnprocessed.WithLabelValues(buildID).Set(float64(unprocessed))
+		e.buildQueueUnprocessed.With(labels).Set(float64(unprocessed))
 	}
 
 	if running, err := runningCmd.Result(); err == nil {
-		e.buildQueueRunning.WithLabelValues(buildID).Set(float64(running))
+		e.buildQueueRunning.With(labels).Set(float64(running))
 	}
 
 	if processed, err := processedCmd.Result(); err == nil {
-		e.buildQueueProcessed.WithLabelValues(buildID).Set(float64(processed))
+		e.buildQueueProcessed.With(labels).Set(float64(processed))
 	}
 
 	if lost, err := lostCmd.Result(); err == nil {
-		e.buildQueueLost.WithLabelValues(buildID).Set(float64(lost))
+		e.buildQueueLost.With(labels).Set(float64(lost))
 	}
 
 	// Process results - Example metrics
 	if exampleCount, err := exampleCountCmd.Int64(); err == nil {
-		e.buildExampleCount.WithLabelValues(buildID).Set(float64(exampleCount))
+		e.buildExampleCount.With(labels).Set(float64(exampleCount))
 	}
 
 	failures := int64(0)
 	if f, err := failuresCmd.Result(); err == nil {
 		failures = f
-		e.buildExampleFailures.WithLabelValues(buildID).Set(float64(failures))
+		e.buildExampleFailures.With(labels).Set(float64(failures))
 	}
 
 	errors := int64(0)
 	if er, err := errorsCmd.Result(); err == nil {
 		errors = er
-		e.buildNonExampleErrors.WithLabelValues(buildID).Set(float64(errors))
+		e.buildNonExampleErrors.With(labels).Set(float64(errors))
 	}
 
 	if requeues, err := requeuesCmd.Result(); err == nil {
-		e.buildRequeues.WithLabelValues(buildID).Set(float64(requeues))
+		e.buildRequeues.With(labels).Set(float64(requeues))
 	}
 
 	// Process results - Status metrics
 	status, _ := statusCmd.Result()
 
 	// Set status gauges
-	e.buildStatus.WithLabelValues(buildID, "initializing").Set(0)
-	e.buildStatus.WithLabelValues(buildID, "ready").Set(0)
-	e.buildStatus.WithLabelValues(buildID, "finished").Set(0)
-	e.buildStatus.WithLabelValues(buildID, "failed").Set(0)
+	statusLabels := make(prometheus.Labels)
+	for k, v := range labels {
+		statusLabels[k] = v
+	}
+	statusLabels["status"] = "initializing"
+	e.buildStatus.With(statusLabels).Set(0)
+	statusLabels["status"] = "ready"
+	e.buildStatus.With(statusLabels).Set(0)
+	statusLabels["status"] = "finished"
+	e.buildStatus.With(statusLabels).Set(0)
+	statusLabels["status"] = "failed"
+	e.buildStatus.With(statusLabels).Set(0)
 
 	switch status {
 	case "initializing":
-		e.buildStatus.WithLabelValues(buildID, "initializing").Set(1)
+		statusLabels["status"] = "initializing"
+		e.buildStatus.With(statusLabels).Set(1)
 	case "ready":
-		e.buildStatus.WithLabelValues(buildID, "ready").Set(1)
+		statusLabels["status"] = "ready"
+		e.buildStatus.With(statusLabels).Set(1)
 	}
 
 	// Check if finished or failed
 	if exists, _ := finishedExistsCmd.Result(); exists > 0 {
 		if failures > 0 || errors > 0 {
-			e.buildStatus.WithLabelValues(buildID, "failed").Set(1)
+			statusLabels["status"] = "failed"
+			e.buildStatus.With(statusLabels).Set(1)
 		} else {
-			e.buildStatus.WithLabelValues(buildID, "finished").Set(1)
+			statusLabels["status"] = "finished"
+			e.buildStatus.With(statusLabels).Set(1)
 		}
 	}
 
 	// Process results - Fail-fast config
 	if failFast, err := failFastCmd.Int64(); err == nil {
-		e.buildFailFast.WithLabelValues(buildID).Set(float64(failFast))
+		e.buildFailFast.With(labels).Set(float64(failFast))
 	}
 
 	// Process results - Worker metrics
 	if heartbeats, err := heartbeatsCmd.Result(); err == nil {
-		e.workerCount.WithLabelValues(buildID).Set(float64(len(heartbeats)))
+		e.workerCount.With(labels).Set(float64(len(heartbeats)))
 		if !e.disablePerWorkerMetrics {
 			for _, hb := range heartbeats {
 				workerID := hb.Member.(string)
@@ -584,7 +644,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	// Process withdrawn workers - always calculate total count for build-level metric
 	if withdrawn, err := withdrawnCmd.Result(); err == nil {
 		totalWithdrawn := float64(len(withdrawn))
-		e.buildWithdrawnCount.WithLabelValues(buildID).Set(totalWithdrawn)
+		e.buildWithdrawnCount.With(labels).Set(totalWithdrawn)
 
 		// Set per-worker withdrawn metrics if enabled
 		if !e.disablePerWorkerMetrics {
@@ -598,22 +658,22 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 
 	// Process results - Timing metrics
 	if electedAt, err := electedMasterCmd.Int64(); err == nil {
-		e.buildElectedMasterAt.WithLabelValues(buildID).Set(float64(electedAt))
+		e.buildElectedMasterAt.With(labels).Set(float64(electedAt))
 	}
 
 	readyAt := int64(0)
 	if ra, err := readyAtCmd.Int64(); err == nil {
 		readyAt = ra
-		e.buildReadyAt.WithLabelValues(buildID).Set(float64(readyAt))
+		e.buildReadyAt.With(labels).Set(float64(readyAt))
 	}
 
 	if finishedAt, err := finishedAtCmd.Int64(); err == nil {
-		e.buildFinishedAt.WithLabelValues(buildID).Set(float64(finishedAt))
+		e.buildFinishedAt.With(labels).Set(float64(finishedAt))
 
 		// Calculate duration if we have ready_at
 		if readyAt > 0 {
 			duration := finishedAt - readyAt
-			e.buildDuration.WithLabelValues(buildID).Set(float64(duration))
+			e.buildDuration.With(labels).Set(float64(duration))
 		}
 	}
 
