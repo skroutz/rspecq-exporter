@@ -1,0 +1,11 @@
+# Ignore everything that doesn't need to be in the image
+.git
+.gitignore
+README.md
+ACTION_PLAN.md
+Makefile
+rspecq-exporter
+*.test
+coverage.out
+.vscode
+.idea

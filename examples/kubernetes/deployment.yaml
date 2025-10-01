@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rspecq-exporter
+  labels:
+    app: rspecq-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rspecq-exporter
+  template:
+    metadata:
+      labels:
+        app: rspecq-exporter
+    spec:
+      containers:
+      - name: rspecq-exporter
+        image: rspecq-exporter:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: metrics
+          containerPort: 9292
+          protocol: TCP
+        args:
+        - --redis-addr=redis-service:6379
+        - --scrape-interval=15s
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rspecq-exporter
+  labels:
+    app: rspecq-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9292
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app: rspecq-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rspecq-exporter
+  labels:
+    app: rspecq-exporter
+spec:
+  selector:
+    matchLabels:
+      app: rspecq-exporter
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
