@@ -45,6 +45,7 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 | `--redis-db` | Redis database number | `0` |
 | `--listen-addr` | HTTP server listen address | `:9292` |
 | `--scrape-interval` | Interval for scraping Redis metrics | `15s` |
+| `--disable-per-worker-metrics` | Disable metrics about individual workers (reduces cardinality) | `false` |
 
 ### Example
 
@@ -58,6 +59,11 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
   --redis-password=secret \
   --listen-addr=:8080 \
   --scrape-interval=10s
+
+# Disable per-worker metrics to reduce cardinality
+./rspecq-exporter \
+  --redis-addr=localhost:6379 \
+  --disable-per-worker-metrics
 ```
 
 ## Metrics
@@ -81,9 +87,11 @@ docker run -p 9292:9292 rspecq-exporter --redis-addr=redis:6379
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rspecq_worker_heartbeat_timestamp` | Gauge | `build_id`, `worker_id` | Unix timestamp of last worker heartbeat |
+| `rspecq_worker_heartbeat_timestamp` | Gauge | `build_id`, `worker_id` | Unix timestamp of last worker heartbeat (disabled with `--disable-per-worker-metrics`) |
 | `rspecq_worker_count` | Gauge | `build_id` | Number of active workers for a build |
-| `rspecq_workers_withdrawn` | Gauge | `build_id`, `worker_id` | Count of abnormal worker terminations |
+| `rspecq_workers_withdrawn` | Gauge | `build_id`, `worker_id` | Count of abnormal worker terminations (disabled with `--disable-per-worker-metrics`) |
+
+> **Note**: The metrics `rspecq_worker_heartbeat_timestamp` and `rspecq_workers_withdrawn` include the `worker_id` label, which can lead to high cardinality in environments with many workers. Use the `--disable-per-worker-metrics` flag to disable these metrics while keeping the aggregate `rspecq_worker_count` metric.
 
 ### Timing Metrics
 

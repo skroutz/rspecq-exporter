@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	redisAddr      = flag.String("redis-addr", "localhost:6379", "Redis address")
-	redisPassword  = flag.String("redis-password", "", "Redis password")
-	redisDB        = flag.Int("redis-db", 0, "Redis database number")
-	listenAddr     = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
-	scrapeInterval = flag.Duration("scrape-interval", 15*time.Second, "Interval for scraping Redis metrics")
+	redisAddr               = flag.String("redis-addr", "localhost:6379", "Redis address")
+	redisPassword           = flag.String("redis-password", "", "Redis password")
+	redisDB                 = flag.Int("redis-db", 0, "Redis database number")
+	listenAddr              = flag.String("listen-addr", ":9292", "Address to listen on for metrics")
+	scrapeInterval          = flag.Duration("scrape-interval", 15*time.Second, "Interval for scraping Redis metrics")
+	disablePerWorkerMetrics = flag.Bool("disable-per-worker-metrics", false, "Disable metrics about individual workers (reduces cardinality)")
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 	log.Printf("Successfully connected to Redis at %s", *redisAddr)
 
 	// Create and register the exporter
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, *disablePerWorkerMetrics)
 	prometheus.MustRegister(exporter)
 
 	// Setup HTTP server

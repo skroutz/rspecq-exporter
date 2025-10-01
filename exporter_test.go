@@ -19,7 +19,7 @@ func TestNewRSpecQExporter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 
 	if exporter == nil {
 		t.Fatal("Expected non-nil exporter")
@@ -39,7 +39,7 @@ func TestExporterImplementsCollector(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 
 	// Check that exporter implements prometheus.Collector
 	var _ prometheus.Collector = exporter
@@ -104,7 +104,7 @@ func TestDiscoverBuilds_NoBuilds(t *testing.T) {
 	rdb, _, cleanup := setupTestRedis(t)
 	defer cleanup()
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 	ctx := context.Background()
 
 	builds, err := exporter.discoverBuilds(ctx)
@@ -132,7 +132,7 @@ func TestDiscoverBuilds_MultipleBuilds(t *testing.T) {
 		}
 	}
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 	builds, err := exporter.discoverBuilds(ctx)
 	if err != nil {
 		t.Fatalf("discoverBuilds failed: %v", err)
@@ -172,7 +172,7 @@ func TestDiscoverBuilds_WithStatusKeys(t *testing.T) {
 	rdb.LPush(ctx, buildID+":queue:unprocessed", "job1")
 	rdb.SAdd(ctx, buildID+":queue:processed", "job2", "job3")
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 	builds, err := exporter.discoverBuilds(ctx)
 	if err != nil {
 		t.Fatalf("discoverBuilds failed: %v", err)
@@ -197,7 +197,7 @@ func TestScrape_WithBuilds(t *testing.T) {
 	// Set up a complete build with various metrics
 	setupTestBuild(t, ctx, rdb, buildID)
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 
 	// Run scrape
 	exporter.scrape(ctx)
@@ -229,7 +229,7 @@ func TestPeriodicScraping(t *testing.T) {
 	buildID := "periodic-test-build"
 	setupTestBuild(t, ctx, rdb, buildID)
 
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 
 	// Start scraper with short interval
 	go exporter.StartScraper(ctx, 100*time.Millisecond)
@@ -382,7 +382,7 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	rdb.RPush(ctx, "build_times", "120", "95")
 
 	// Create exporter and register with a custom registry for testing
-	exporter := NewRSpecQExporter(rdb)
+	exporter := NewRSpecQExporter(rdb, false)
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
 
@@ -549,4 +549,66 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 
 	t.Logf("✓ All metrics validated successfully!")
 	t.Logf("✓ Total metric families: %d", len(metricFamilies))
+}
+
+func TestDisablePerWorkerMetrics(t *testing.T) {
+	rdb, _, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	buildID := "test-build-no-worker"
+
+	// Set up a build with worker metrics
+	setupTestBuild(t, ctx, rdb, buildID)
+
+	// Create exporter with per-worker metrics disabled
+	exporter := NewRSpecQExporter(rdb, true)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	// Run scrape to collect metrics
+	exporter.scrape(ctx)
+
+	// Gather metrics
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+
+	// Convert to text for easier validation
+	var metricsText strings.Builder
+	for _, mf := range metricFamilies {
+		metricsText.WriteString(mf.String())
+	}
+	output := metricsText.String()
+
+	// Verify per-worker metrics are NOT present
+	perWorkerMetrics := []string{
+		"rspecq_worker_heartbeat_timestamp",
+		"rspecq_workers_withdrawn",
+	}
+
+	for _, metric := range perWorkerMetrics {
+		if strings.Contains(output, metric) {
+			t.Errorf("Per-worker metric %s should not be present when disabled", metric)
+		}
+	}
+
+	// Verify worker_count is still present (aggregate metric)
+	if !strings.Contains(output, "rspecq_worker_count") {
+		t.Error("worker_count metric should still be present (not per-worker)")
+	}
+
+	// Verify other metrics are still present
+	expectedMetrics := []string{
+		"rspecq_build_queue_unprocessed",
+		"rspecq_build_example_count",
+		"rspecq_build_status",
+	}
+
+	for _, metric := range expectedMetrics {
+		if !strings.Contains(output, metric) {
+			t.Errorf("Expected metric %s to be present", metric)
+		}
+	}
 }

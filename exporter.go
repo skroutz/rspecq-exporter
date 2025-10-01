@@ -24,8 +24,9 @@ type Build struct {
 
 // RSpecQExporter collects metrics from RSpecQ Redis instance
 type RSpecQExporter struct {
-	rdb   *redis.Client
-	mutex sync.RWMutex
+	rdb                     *redis.Client
+	mutex                   sync.RWMutex
+	disablePerWorkerMetrics bool
 
 	// Build-level metrics
 	buildQueueUnprocessed *prometheus.GaugeVec
@@ -64,9 +65,10 @@ type RSpecQExporter struct {
 }
 
 // NewRSpecQExporter creates a new RSpecQ exporter
-func NewRSpecQExporter(rdb *redis.Client) *RSpecQExporter {
-	return &RSpecQExporter{
-		rdb: rdb,
+func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool) *RSpecQExporter {
+	exporter := &RSpecQExporter{
+		rdb:                     rdb,
+		disablePerWorkerMetrics: disablePerWorkerMetrics,
 		buildQueueUnprocessed: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
@@ -147,14 +149,6 @@ func NewRSpecQExporter(rdb *redis.Client) *RSpecQExporter {
 			},
 			[]string{"build_id"},
 		),
-		workerHeartbeats: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "worker_heartbeat_timestamp",
-				Help:      "Last heartbeat timestamp for a worker",
-			},
-			[]string{"build_id", "worker_id"},
-		),
 		workerCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
@@ -162,14 +156,6 @@ func NewRSpecQExporter(rdb *redis.Client) *RSpecQExporter {
 				Help:      "Number of active workers for a build",
 			},
 			[]string{"build_id"},
-		),
-		workersWithdrawn: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Name:      "workers_withdrawn",
-				Help:      "Number of times a worker was withdrawn (abnormal termination) for a build",
-			},
-			[]string{"build_id", "worker_id"},
 		),
 		buildElectedMasterAt: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -240,6 +226,28 @@ func NewRSpecQExporter(rdb *redis.Client) *RSpecQExporter {
 		),
 		activeBuilds: make(map[string]bool),
 	}
+
+	// Conditionally initialize per-worker metrics
+	if !disablePerWorkerMetrics {
+		exporter.workerHeartbeats = prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Name:      "worker_heartbeat_timestamp",
+				Help:      "Last heartbeat timestamp for a worker",
+			},
+			[]string{"build_id", "worker_id"},
+		)
+		exporter.workersWithdrawn = prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Name:      "workers_withdrawn",
+				Help:      "Number of times a worker was withdrawn (abnormal termination) for a build",
+			},
+			[]string{"build_id", "worker_id"},
+		)
+	}
+
+	return exporter
 }
 
 // Describe implements prometheus.Collector
@@ -254,9 +262,13 @@ func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
 	e.buildRequeues.Describe(ch)
 	e.buildStatus.Describe(ch)
 	e.buildFailFast.Describe(ch)
-	e.workerHeartbeats.Describe(ch)
+	if !e.disablePerWorkerMetrics {
+		e.workerHeartbeats.Describe(ch)
+	}
 	e.workerCount.Describe(ch)
-	e.workersWithdrawn.Describe(ch)
+	if !e.disablePerWorkerMetrics {
+		e.workersWithdrawn.Describe(ch)
+	}
 	e.buildElectedMasterAt.Describe(ch)
 	e.buildReadyAt.Describe(ch)
 	e.buildFinishedAt.Describe(ch)
@@ -283,9 +295,13 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.buildRequeues.Collect(ch)
 	e.buildStatus.Collect(ch)
 	e.buildFailFast.Collect(ch)
-	e.workerHeartbeats.Collect(ch)
+	if !e.disablePerWorkerMetrics {
+		e.workerHeartbeats.Collect(ch)
+	}
 	e.workerCount.Collect(ch)
-	e.workersWithdrawn.Collect(ch)
+	if !e.disablePerWorkerMetrics {
+		e.workersWithdrawn.Collect(ch)
+	}
 	e.buildElectedMasterAt.Collect(ch)
 	e.buildReadyAt.Collect(ch)
 	e.buildFinishedAt.Collect(ch)
@@ -341,9 +357,13 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	e.buildRequeues.Reset()
 	e.buildStatus.Reset()
 	e.buildFailFast.Reset()
-	e.workerHeartbeats.Reset()
+	if !e.disablePerWorkerMetrics {
+		e.workerHeartbeats.Reset()
+	}
 	e.workerCount.Reset()
-	e.workersWithdrawn.Reset()
+	if !e.disablePerWorkerMetrics {
+		e.workersWithdrawn.Reset()
+	}
 	e.buildElectedMasterAt.Reset()
 	e.buildReadyAt.Reset()
 	e.buildFinishedAt.Reset()
@@ -541,16 +561,20 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	// Process results - Worker metrics
 	if heartbeats, err := heartbeatsCmd.Result(); err == nil {
 		e.workerCount.WithLabelValues(buildID).Set(float64(len(heartbeats)))
-		for _, hb := range heartbeats {
-			workerID := hb.Member.(string)
-			e.workerHeartbeats.WithLabelValues(buildID, workerID).Set(hb.Score)
+		if !e.disablePerWorkerMetrics {
+			for _, hb := range heartbeats {
+				workerID := hb.Member.(string)
+				e.workerHeartbeats.WithLabelValues(buildID, workerID).Set(hb.Score)
+			}
 		}
 	}
 
-	if withdrawn, err := withdrawnCmd.Result(); err == nil {
-		for workerID, count := range withdrawn {
-			if val, err := parseFloat(count); err == nil {
-				e.workersWithdrawn.WithLabelValues(buildID, workerID).Set(val)
+	if !e.disablePerWorkerMetrics {
+		if withdrawn, err := withdrawnCmd.Result(); err == nil {
+			for workerID, count := range withdrawn {
+				if val, err := parseFloat(count); err == nil {
+					e.workersWithdrawn.WithLabelValues(buildID, workerID).Set(val)
+				}
 			}
 		}
 	}
