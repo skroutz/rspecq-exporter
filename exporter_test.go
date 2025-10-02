@@ -582,6 +582,55 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 
 	t.Logf("✓ All metrics validated successfully!")
 	t.Logf("✓ Total metric families: %d", len(metricFamilies))
+
+	// Additional test: Verify metrics cleanup after build removal
+	// This ensures the fix for the flaky_failures bug (metrics not being reset) works correctly
+	t.Logf("Testing metric cleanup after build removal...")
+
+	// Delete all build-related keys from Redis
+	iter := rdb.Scan(ctx, 0, buildID+":*", 1000).Iterator()
+	keysToDelete := []string{}
+	for iter.Next(ctx) {
+		keysToDelete = append(keysToDelete, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		t.Fatalf("Failed to scan for build keys: %v", err)
+	}
+
+	// Delete the keys
+	if len(keysToDelete) > 0 {
+		rdb.Del(ctx, keysToDelete...)
+	}
+
+	// Also delete the status key explicitly (it's the discovery key)
+	rdb.Del(ctx, buildID+":queue:status")
+
+	// Run another scrape - should not find the build anymore
+	exporter.scrape(ctx)
+
+	// Gather metrics again
+	metricFamilies2, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics after cleanup: %v", err)
+	}
+
+	// Check that NO build-level metrics contain our buildID
+	for _, mf := range metricFamilies2 {
+		// Only check build-level metrics (those with "build_" in the name)
+		if !strings.Contains(mf.GetName(), "build_") {
+			continue
+		}
+
+		for _, m := range mf.GetMetric() {
+			for _, label := range m.GetLabel() {
+				if label.GetName() == "build_id" && label.GetValue() == buildID {
+					t.Errorf("After cleanup, metric %s still contains build_id=%s", mf.GetName(), buildID)
+				}
+			}
+		}
+	}
+
+	t.Logf("✓ Metrics properly cleaned up after build removal from Redis")
 }
 
 func TestDisablePerWorkerMetrics(t *testing.T) {

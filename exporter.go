@@ -70,6 +70,14 @@ type RSpecQExporter struct {
 
 	// Cached data for metrics
 	activeBuilds map[string]bool
+
+	// Metric collections for bulk operations
+	// IMPORTANT: When adding a new metric, you must add it to the appropriate collection(s) below
+	// in NewRSpecQExporter to ensure it's properly described, collected, and reset.
+	allBuildMetrics     []prometheus.Collector // All build-level GaugeVec metrics
+	allPerWorkerMetrics []prometheus.Collector // Per-worker metrics (if enabled)
+	allScalarMetrics    []prometheus.Collector // Non-vec Gauge metrics
+	allResetableMetrics []interface{ Reset() } // Metrics that need Reset() during scraping
 }
 
 // NewRSpecQExporter creates a new RSpecQ exporter
@@ -300,40 +308,94 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		)
 	}
 
+	// Populate metric collections for bulk operations
+	// Build-level metrics (all GaugeVec with build labels)
+	exporter.allBuildMetrics = []prometheus.Collector{
+		exporter.buildUnprocessed,
+		exporter.buildRunning,
+		exporter.buildProcessed,
+		exporter.buildLost,
+		exporter.buildExamples,
+		exporter.buildExampleFailures,
+		exporter.buildNonExampleErrors,
+		exporter.buildRequeues,
+		exporter.buildFlakyFailures,
+		exporter.buildStatus,
+		exporter.buildFailFast,
+		exporter.buildWithdrawnWorkers,
+		exporter.workers,
+		exporter.buildElectedMasterAt,
+		exporter.buildReadyAt,
+		exporter.buildFinishedAt,
+		exporter.buildDuration,
+	}
+
+	// Per-worker metrics (conditionally included)
+	if !disablePerWorkerMetrics {
+		exporter.allPerWorkerMetrics = []prometheus.Collector{
+			exporter.workerHeartbeats,
+			exporter.workersWithdrawn,
+		}
+	}
+
+	// Scalar metrics (Gauge, not GaugeVec)
+	exporter.allScalarMetrics = []prometheus.Collector{
+		exporter.globalTimings,
+		exporter.runningBuilds,
+		exporter.scrapeSuccess,
+		exporter.scrapeDuration,
+		exporter.lastScrapeTime,
+		exporter.redisLatency,
+	}
+
+	// All metrics that need to be reset during scraping
+	exporter.allResetableMetrics = []interface{ Reset() }{
+		exporter.buildUnprocessed,
+		exporter.buildRunning,
+		exporter.buildProcessed,
+		exporter.buildLost,
+		exporter.buildExamples,
+		exporter.buildExampleFailures,
+		exporter.buildNonExampleErrors,
+		exporter.buildRequeues,
+		exporter.buildFlakyFailures,
+		exporter.buildStatus,
+		exporter.buildFailFast,
+		exporter.buildWithdrawnWorkers,
+		exporter.workers,
+		exporter.buildElectedMasterAt,
+		exporter.buildReadyAt,
+		exporter.buildFinishedAt,
+		exporter.buildDuration,
+	}
+
+	// Add per-worker metrics to resetable list if enabled
+	if !disablePerWorkerMetrics {
+		exporter.allResetableMetrics = append(exporter.allResetableMetrics,
+			exporter.workerHeartbeats,
+			exporter.workersWithdrawn,
+		)
+	}
+
 	return exporter, nil
 }
 
 // Describe implements prometheus.Collector
 func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
-	e.buildUnprocessed.Describe(ch)
-	e.buildRunning.Describe(ch)
-	e.buildProcessed.Describe(ch)
-	e.buildLost.Describe(ch)
-	e.buildExamples.Describe(ch)
-	e.buildExampleFailures.Describe(ch)
-	e.buildNonExampleErrors.Describe(ch)
-	e.buildRequeues.Describe(ch)
-	e.buildFlakyFailures.Describe(ch)
-	e.buildStatus.Describe(ch)
-	e.buildFailFast.Describe(ch)
-	e.buildWithdrawnWorkers.Describe(ch)
-	if !e.disablePerWorkerMetrics {
-		e.workerHeartbeats.Describe(ch)
+	// Describe all build-level metrics
+	for _, metric := range e.allBuildMetrics {
+		metric.Describe(ch)
 	}
-	e.workers.Describe(ch)
-	if !e.disablePerWorkerMetrics {
-		e.workersWithdrawn.Describe(ch)
+
+	// Describe per-worker metrics if enabled
+	for _, metric := range e.allPerWorkerMetrics {
+		metric.Describe(ch)
 	}
-	e.buildElectedMasterAt.Describe(ch)
-	e.buildReadyAt.Describe(ch)
-	e.buildFinishedAt.Describe(ch)
-	e.buildDuration.Describe(ch)
-	e.globalTimings.Describe(ch)
-	e.runningBuilds.Describe(ch)
-	e.scrapeSuccess.Describe(ch)
-	e.scrapeDuration.Describe(ch)
-	e.lastScrapeTime.Describe(ch)
-	e.redisLatency.Describe(ch)
+
+	// Describe scalar metrics
+	for _, metric := range e.allScalarMetrics {
+		metric.Describe(ch)
+	}
 }
 
 // Collect implements prometheus.Collector
@@ -341,35 +403,20 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
 
-	e.buildUnprocessed.Collect(ch)
-	e.buildRunning.Collect(ch)
-	e.buildProcessed.Collect(ch)
-	e.buildLost.Collect(ch)
-	e.buildExamples.Collect(ch)
-	e.buildExampleFailures.Collect(ch)
-	e.buildNonExampleErrors.Collect(ch)
-	e.buildRequeues.Collect(ch)
-	e.buildFlakyFailures.Collect(ch)
-	e.buildStatus.Collect(ch)
-	e.buildFailFast.Collect(ch)
-	e.buildWithdrawnWorkers.Collect(ch)
-	if !e.disablePerWorkerMetrics {
-		e.workerHeartbeats.Collect(ch)
+	// Collect all build-level metrics
+	for _, metric := range e.allBuildMetrics {
+		metric.Collect(ch)
 	}
-	e.workers.Collect(ch)
-	if !e.disablePerWorkerMetrics {
-		e.workersWithdrawn.Collect(ch)
+
+	// Collect per-worker metrics if enabled
+	for _, metric := range e.allPerWorkerMetrics {
+		metric.Collect(ch)
 	}
-	e.buildElectedMasterAt.Collect(ch)
-	e.buildReadyAt.Collect(ch)
-	e.buildFinishedAt.Collect(ch)
-	e.buildDuration.Collect(ch)
-	e.globalTimings.Collect(ch)
-	e.runningBuilds.Collect(ch)
-	e.scrapeSuccess.Collect(ch)
-	e.scrapeDuration.Collect(ch)
-	e.lastScrapeTime.Collect(ch)
-	e.redisLatency.Collect(ch)
+
+	// Collect scalar metrics
+	for _, metric := range e.allScalarMetrics {
+		metric.Collect(ch)
+	}
 }
 
 // StartScraper runs periodic scraping of Redis metrics
@@ -417,30 +464,10 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	// Reset metrics for clean state
-	e.buildUnprocessed.Reset()
-	e.buildRunning.Reset()
-	e.buildProcessed.Reset()
-	e.buildLost.Reset()
-	e.buildExamples.Reset()
-	e.buildExampleFailures.Reset()
-	e.buildNonExampleErrors.Reset()
-	e.buildRequeues.Reset()
-	e.buildFlakyFailures.Reset()
-	e.buildStatus.Reset()
-	e.buildFailFast.Reset()
-	e.buildWithdrawnWorkers.Reset()
-	if !e.disablePerWorkerMetrics {
-		e.workerHeartbeats.Reset()
+	// Reset all metrics for clean state using our centralized list
+	for _, metric := range e.allResetableMetrics {
+		metric.Reset()
 	}
-	e.workers.Reset()
-	if !e.disablePerWorkerMetrics {
-		e.workersWithdrawn.Reset()
-	}
-	e.buildElectedMasterAt.Reset()
-	e.buildReadyAt.Reset()
-	e.buildFinishedAt.Reset()
-	e.buildDuration.Reset()
 
 	// Discover active builds by scanning for keys
 	builds, err := e.discoverBuilds(ctx)
