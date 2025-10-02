@@ -30,3 +30,6 @@ rspecq-exporter
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Local development files
+local/
