@@ -47,7 +47,7 @@ type RSpecQExporter struct {
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
-	workers          *prometheus.GaugeVec
+	buildWorkers     *prometheus.GaugeVec
 	workersWithdrawn *prometheus.GaugeVec
 
 	// Timing metrics
@@ -205,7 +205,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
-	exporter.workers = prometheus.NewGaugeVec(
+	exporter.buildWorkers = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "build_workers",
@@ -323,7 +323,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildStatus,
 		exporter.buildFailFast,
 		exporter.buildWithdrawnWorkers,
-		exporter.workers,
+		exporter.buildWorkers,
 		exporter.buildElectedMasterAt,
 		exporter.buildReadyAt,
 		exporter.buildFinishedAt,
@@ -362,7 +362,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildStatus,
 		exporter.buildFailFast,
 		exporter.buildWithdrawnWorkers,
-		exporter.workers,
+		exporter.buildWorkers,
 		exporter.buildElectedMasterAt,
 		exporter.buildReadyAt,
 		exporter.buildFinishedAt,
@@ -694,7 +694,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 
 	// Process results - Worker metrics
 	if heartbeats, err := heartbeatsCmd.Result(); err == nil {
-		e.workers.With(labels).Set(float64(len(heartbeats)))
+		e.buildWorkers.With(labels).Set(float64(len(heartbeats)))
 		if !e.disablePerWorkerMetrics {
 			for _, hb := range heartbeats {
 				workerID := hb.Member.(string)

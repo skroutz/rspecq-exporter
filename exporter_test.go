@@ -497,7 +497,7 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 
 		// Worker metrics
 		{`rspecq_build_workers{build_id="e2e-test-build"}`, 3, func() float64 {
-			return testutil.ToFloat64(exporter.workers.WithLabelValues(buildID))
+			return testutil.ToFloat64(exporter.buildWorkers.WithLabelValues(buildID))
 		}},
 
 		// Withdrawn workers count (build-level metric)
