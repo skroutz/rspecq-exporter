@@ -32,10 +32,10 @@ type RSpecQExporter struct {
 	labelNames              []string
 
 	// Build-level metrics
-	buildQueueUnprocessed *prometheus.GaugeVec
-	buildQueueRunning     *prometheus.GaugeVec
-	buildQueueProcessed   *prometheus.GaugeVec
-	buildQueueLost        *prometheus.GaugeVec
+	buildUnprocessed *prometheus.GaugeVec
+	buildRunning     *prometheus.GaugeVec
+	buildProcessed   *prometheus.GaugeVec
+	buildLost        *prometheus.GaugeVec
 	buildExampleCount     *prometheus.GaugeVec
 	buildExampleFailures  *prometheus.GaugeVec
 	buildNonExampleErrors *prometheus.GaugeVec
@@ -96,34 +96,34 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.labelNames = []string{"build_id"}
 	}
 
-	exporter.buildQueueUnprocessed = prometheus.NewGaugeVec(
+	exporter.buildUnprocessed = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_queue_unprocessed",
+			Name:      "build_unprocessed",
 			Help:      "Number of unprocessed jobs in the queue for a build",
 		},
 		exporter.labelNames,
 	)
-	exporter.buildQueueRunning = prometheus.NewGaugeVec(
+	exporter.buildRunning = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_queue_running",
+			Name:      "build_running",
 			Help:      "Number of jobs currently running for a build",
 		},
 		exporter.labelNames,
 	)
-	exporter.buildQueueProcessed = prometheus.NewGaugeVec(
+	exporter.buildProcessed = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_queue_processed",
+			Name:      "build_processed",
 			Help:      "Number of processed jobs for a build",
 		},
 		exporter.labelNames,
 	)
-	exporter.buildQueueLost = prometheus.NewGaugeVec(
+	exporter.buildLost = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_queue_lost",
+			Name:      "build_lost",
 			Help:      "Number of lost jobs for a build",
 		},
 		exporter.labelNames,
@@ -163,8 +163,8 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 	exporter.buildStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_status",
-			Help:      "Build status (0=initializing, 1=ready)",
+			Name:      "build_queue_status",
+			Help:      "Build queue status (0=initializing, 1=ready)",
 		},
 		append(exporter.labelNames, "status"),
 	)
@@ -278,10 +278,10 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 
 // Describe implements prometheus.Collector
 func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
-	e.buildQueueUnprocessed.Describe(ch)
-	e.buildQueueRunning.Describe(ch)
-	e.buildQueueProcessed.Describe(ch)
-	e.buildQueueLost.Describe(ch)
+	e.buildUnprocessed.Describe(ch)
+	e.buildRunning.Describe(ch)
+	e.buildProcessed.Describe(ch)
+	e.buildLost.Describe(ch)
 	e.buildExampleCount.Describe(ch)
 	e.buildExampleFailures.Describe(ch)
 	e.buildNonExampleErrors.Describe(ch)
@@ -311,10 +311,10 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
 
-	e.buildQueueUnprocessed.Collect(ch)
-	e.buildQueueRunning.Collect(ch)
-	e.buildQueueProcessed.Collect(ch)
-	e.buildQueueLost.Collect(ch)
+	e.buildUnprocessed.Collect(ch)
+	e.buildRunning.Collect(ch)
+	e.buildProcessed.Collect(ch)
+	e.buildLost.Collect(ch)
 	e.buildExampleCount.Collect(ch)
 	e.buildExampleFailures.Collect(ch)
 	e.buildNonExampleErrors.Collect(ch)
@@ -373,10 +373,10 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	defer e.mutex.Unlock()
 
 	// Reset metrics for clean state
-	e.buildQueueUnprocessed.Reset()
-	e.buildQueueRunning.Reset()
-	e.buildQueueProcessed.Reset()
-	e.buildQueueLost.Reset()
+	e.buildUnprocessed.Reset()
+	e.buildRunning.Reset()
+	e.buildProcessed.Reset()
+	e.buildLost.Reset()
 	e.buildExampleCount.Reset()
 	e.buildExampleFailures.Reset()
 	e.buildNonExampleErrors.Reset()
@@ -540,19 +540,19 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 
 	// Process results - Queue metrics
 	if unprocessed, err := unprocessedCmd.Result(); err == nil {
-		e.buildQueueUnprocessed.With(labels).Set(float64(unprocessed))
+		e.buildUnprocessed.With(labels).Set(float64(unprocessed))
 	}
 
 	if running, err := runningCmd.Result(); err == nil {
-		e.buildQueueRunning.With(labels).Set(float64(running))
+		e.buildRunning.With(labels).Set(float64(running))
 	}
 
 	if processed, err := processedCmd.Result(); err == nil {
-		e.buildQueueProcessed.With(labels).Set(float64(processed))
+		e.buildProcessed.With(labels).Set(float64(processed))
 	}
 
 	if lost, err := lostCmd.Result(); err == nil {
-		e.buildQueueLost.With(labels).Set(float64(lost))
+		e.buildLost.With(labels).Set(float64(lost))
 	}
 
 	// Process results - Example metrics

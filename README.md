@@ -119,15 +119,15 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rspecq_build_queue_unprocessed` | Gauge | `build_id` | Number of jobs waiting to be processed |
-| `rspecq_build_queue_running` | Gauge | `build_id` | Number of jobs currently being executed |
-| `rspecq_build_queue_processed` | Gauge | `build_id` | Number of completed jobs |
-| `rspecq_build_queue_lost` | Gauge | `build_id` | Number of jobs lost due to worker failures |
+| `rspecq_build_unprocessed` | Gauge | `build_id` | Number of jobs waiting to be processed |
+| `rspecq_build_running` | Gauge | `build_id` | Number of jobs currently being executed |
+| `rspecq_build_processed` | Gauge | `build_id` | Number of completed jobs |
+| `rspecq_build_lost` | Gauge | `build_id` | Number of jobs lost due to worker failures |
 | `rspecq_build_example_count` | Gauge | `build_id` | Total number of RSpec examples executed |
 | `rspecq_build_example_failures` | Gauge | `build_id` | Number of failed examples |
 | `rspecq_build_non_example_errors` | Gauge | `build_id` | Number of non-example errors (e.g., syntax errors) |
 | `rspecq_build_requeues` | Gauge | `build_id` | Number of jobs that were requeued |
-| `rspecq_build_status` | Gauge | `build_id`, `status` | Build status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready` |
+| `rspecq_build_queue_status` | Gauge | `build_id`, `status` | Build queue status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready` |
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
 
 ### Worker Metrics
@@ -180,18 +180,18 @@ scrape_configs:
 
 ### Active Builds
 ```promql
-count(rspecq_build_queue_unprocessed > 0)
+count(rspecq_build_unprocessed > 0)
 ```
 
 ### Build Progress (Percentage Complete)
 ```promql
-100 * rspecq_build_queue_processed /
-  (rspecq_build_queue_processed + rspecq_build_queue_unprocessed + rspecq_build_queue_running)
+100 * rspecq_build_processed /
+  (rspecq_build_processed + rspecq_build_unprocessed + rspecq_build_running)
 ```
 
 ### Worker Failure Rate
 ```promql
-rate(rspecq_build_queue_lost[5m])
+rate(rspecq_build_lost[5m])
 ```
 
 ### Average Build Duration

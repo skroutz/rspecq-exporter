@@ -226,7 +226,7 @@ func TestScrape_WithBuilds(t *testing.T) {
 	}
 
 	// Verify that metrics were collected
-	queueUnprocessed := testutil.ToFloat64(exporter.buildQueueUnprocessed.WithLabelValues(buildID))
+	queueUnprocessed := testutil.ToFloat64(exporter.buildUnprocessed.WithLabelValues(buildID))
 	if queueUnprocessed != 2.0 {
 		t.Errorf("Expected 2 unprocessed jobs, got %f", queueUnprocessed)
 	}
@@ -268,7 +268,7 @@ func TestPeriodicScraping(t *testing.T) {
 	}
 
 	// Verify metrics were collected
-	queueUnprocessed := testutil.ToFloat64(exporter.buildQueueUnprocessed.WithLabelValues(buildID))
+	queueUnprocessed := testutil.ToFloat64(exporter.buildUnprocessed.WithLabelValues(buildID))
 	if queueUnprocessed != 2.0 {
 		t.Errorf("Expected 2 unprocessed jobs, got %f", queueUnprocessed)
 	}
@@ -451,17 +451,17 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 
 	tests := []metricTest{
 		// Queue metrics
-		{`rspecq_build_queue_unprocessed{build_id="e2e-test-build"}`, 3, func() float64 {
-			return testutil.ToFloat64(exporter.buildQueueUnprocessed.WithLabelValues(buildID))
+		{`rspecq_build_unprocessed{build_id="e2e-test-build"}`, 3, func() float64 {
+			return testutil.ToFloat64(exporter.buildUnprocessed.WithLabelValues(buildID))
 		}},
-		{`rspecq_build_queue_running{build_id="e2e-test-build"}`, 2, func() float64 {
-			return testutil.ToFloat64(exporter.buildQueueRunning.WithLabelValues(buildID))
+		{`rspecq_build_running{build_id="e2e-test-build"}`, 2, func() float64 {
+			return testutil.ToFloat64(exporter.buildRunning.WithLabelValues(buildID))
 		}},
-		{`rspecq_build_queue_processed{build_id="e2e-test-build"}`, 5, func() float64 {
-			return testutil.ToFloat64(exporter.buildQueueProcessed.WithLabelValues(buildID))
+		{`rspecq_build_processed{build_id="e2e-test-build"}`, 5, func() float64 {
+			return testutil.ToFloat64(exporter.buildProcessed.WithLabelValues(buildID))
 		}},
-		{`rspecq_build_queue_lost{build_id="e2e-test-build"}`, 2, func() float64 {
-			return testutil.ToFloat64(exporter.buildQueueLost.WithLabelValues(buildID))
+		{`rspecq_build_lost{build_id="e2e-test-build"}`, 2, func() float64 {
+			return testutil.ToFloat64(exporter.buildLost.WithLabelValues(buildID))
 		}},
 
 		// Example metrics
@@ -479,7 +479,7 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		}},
 
 		// Status metric (should be 1 for "ready")
-		{`rspecq_build_status{build_id="e2e-test-build",status="ready"}`, 1, func() float64 {
+		{`rspecq_build_queue_status{build_id="e2e-test-build",status="ready"}`, 1, func() float64 {
 			return testutil.ToFloat64(exporter.buildStatus.WithLabelValues(buildID, "ready"))
 		}},
 
@@ -563,7 +563,7 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 
 	// Ensure initializing status is 0 (only "ready" should be 1)
 	// There are only two statuses: initializing and ready
-	initializingMetric := `rspecq_build_status{build_id="e2e-test-build",status="initializing"} 0`
+	initializingMetric := `rspecq_build_queue_status{build_id="e2e-test-build",status="initializing"} 0`
 	if !strings.Contains(prometheusOutput, initializingMetric) {
 		t.Error("Expected initializing status to be 0")
 	}
@@ -630,9 +630,9 @@ func TestDisablePerWorkerMetrics(t *testing.T) {
 
 	// Verify other metrics are still present
 	expectedMetrics := []string{
-		"rspecq_build_queue_unprocessed",
+		"rspecq_build_unprocessed",
 		"rspecq_build_example_count",
-		"rspecq_build_status",
+		"rspecq_build_queue_status",
 	}
 
 	for _, metric := range expectedMetrics {
