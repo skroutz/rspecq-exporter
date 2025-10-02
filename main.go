@@ -51,10 +51,10 @@ func main() {
 				EnvVars: []string{"SCRAPE_INTERVAL"},
 			},
 			&cli.BoolFlag{
-				Name:    "disable-per-worker-metrics",
+				Name:    "worker-metrics",
 				Value:   false,
-				Usage:   "Disable metrics about individual workers (reduces cardinality)",
-				EnvVars: []string{"DISABLE_PER_WORKER_METRICS"},
+				Usage:   "Enable metrics about individual workers (increases cardinality)",
+				EnvVars: []string{"WORKER_METRICS"},
 			},
 			&cli.StringFlag{
 				Name:    "build-id-regex",
@@ -91,7 +91,7 @@ func run(c *cli.Context) error {
 	log.Printf("Successfully connected to Redis at %s", c.String("redis-addr"))
 
 	// Create and register the exporter
-	exporter, err := NewRSpecQExporter(rdb, c.Bool("disable-per-worker-metrics"), c.String("build-id-regex"))
+	exporter, err := NewRSpecQExporter(rdb, !c.Bool("worker-metrics"), c.String("build-id-regex"))
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
