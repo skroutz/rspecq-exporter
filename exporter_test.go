@@ -231,7 +231,7 @@ func TestScrape_WithBuilds(t *testing.T) {
 		t.Errorf("Expected 2 unprocessed jobs, got %f", queueUnprocessed)
 	}
 
-	exampleCount := testutil.ToFloat64(exporter.buildExampleCount.WithLabelValues(buildID))
+	exampleCount := testutil.ToFloat64(exporter.buildExamples.WithLabelValues(buildID))
 	if exampleCount != 42.0 {
 		t.Errorf("Expected 42 examples, got %f", exampleCount)
 	}
@@ -465,8 +465,8 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		}},
 
 		// Example metrics
-		{`rspecq_build_example_count{build_id="e2e-test-build"}`, 150, func() float64 {
-			return testutil.ToFloat64(exporter.buildExampleCount.WithLabelValues(buildID))
+		{`rspecq_build_examples{build_id="e2e-test-build"}`, 150, func() float64 {
+			return testutil.ToFloat64(exporter.buildExamples.WithLabelValues(buildID))
 		}},
 		{`rspecq_build_example_failures{build_id="e2e-test-build"}`, 3, func() float64 {
 			return testutil.ToFloat64(exporter.buildExampleFailures.WithLabelValues(buildID))
@@ -489,18 +489,18 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		}},
 
 		// Worker metrics
-		{`rspecq_worker_count{build_id="e2e-test-build"}`, 3, func() float64 {
-			return testutil.ToFloat64(exporter.workerCount.WithLabelValues(buildID))
+		{`rspecq_workers{build_id="e2e-test-build"}`, 3, func() float64 {
+			return testutil.ToFloat64(exporter.workers.WithLabelValues(buildID))
 		}},
 
 		// Withdrawn workers count (build-level metric)
-		{`rspecq_build_withdrawn_workers_count{build_id="e2e-test-build"}`, 2, func() float64 {
-			return testutil.ToFloat64(exporter.buildWithdrawnCount.WithLabelValues(buildID))
+		{`rspecq_build_withdrawn_workers{build_id="e2e-test-build"}`, 2, func() float64 {
+			return testutil.ToFloat64(exporter.buildWithdrawnWorkers.WithLabelValues(buildID))
 		}},
 
 		// Global metrics
-		{`rspecq_global_timings_count`, 3, func() float64 {
-			return testutil.ToFloat64(exporter.globalTimingsCount)
+		{`rspecq_global_timings`, 3, func() float64 {
+			return testutil.ToFloat64(exporter.globalTimings)
 		}},
 
 		// Scrape metrics
@@ -618,20 +618,20 @@ func TestDisablePerWorkerMetrics(t *testing.T) {
 		}
 	}
 
-	// Verify worker_count is still present (aggregate metric)
-	if !strings.Contains(output, "rspecq_worker_count") {
-		t.Error("worker_count metric should still be present (not per-worker)")
+	// Verify workers is still present (aggregate metric)
+	if !strings.Contains(output, "rspecq_workers") {
+		t.Error("workers metric should still be present (not per-worker)")
 	}
 
-	// Verify build_withdrawn_workers_count is still present (build-level metric)
-	if !strings.Contains(output, "rspecq_build_withdrawn_workers_count") {
-		t.Error("build_withdrawn_workers_count metric should still be present (build-level metric)")
+	// Verify build_withdrawn_workers is still present (build-level metric)
+	if !strings.Contains(output, "rspecq_build_withdrawn_workers") {
+		t.Error("build_withdrawn_workers metric should still be present (build-level metric)")
 	}
 
 	// Verify other metrics are still present
 	expectedMetrics := []string{
 		"rspecq_build_unprocessed",
-		"rspecq_build_example_count",
+		"rspecq_build_examples",
 		"rspecq_build_queue_status",
 	}
 

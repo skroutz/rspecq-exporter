@@ -123,7 +123,7 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 | `rspecq_build_running` | Gauge | `build_id` | Number of jobs currently being executed |
 | `rspecq_build_processed` | Gauge | `build_id` | Number of completed jobs |
 | `rspecq_build_lost` | Gauge | `build_id` | Number of jobs lost due to worker failures |
-| `rspecq_build_example_count` | Gauge | `build_id` | Total number of RSpec examples executed |
+| `rspecq_build_examples` | Gauge | `build_id` | Total number of RSpec examples executed |
 | `rspecq_build_example_failures` | Gauge | `build_id` | Number of failed examples |
 | `rspecq_build_non_example_errors` | Gauge | `build_id` | Number of non-example errors (e.g., syntax errors) |
 | `rspecq_build_requeues` | Gauge | `build_id` | Number of jobs that were requeued |
@@ -134,12 +134,12 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rspecq_worker_count` | Gauge | `build_id` | Number of active workers for a build (aggregate metric) |
-| `rspecq_build_withdrawn_workers_count` | Gauge | `build_id` | Total number of withdrawn workers for a build (aggregate metric) |
+| `rspecq_workers` | Gauge | `build_id` | Number of active workers for a build (aggregate metric) |
+| `rspecq_build_withdrawn_workers` | Gauge | `build_id` | Total number of withdrawn workers for a build (aggregate metric) |
 | `rspecq_worker_heartbeat_timestamp` | Gauge | `build_id`, `worker_id` | Unix timestamp of last worker heartbeat (per-worker metric, disabled with `--disable-per-worker-metrics`) |
 | `rspecq_workers_withdrawn` | Gauge | `build_id`, `worker_id` | Count of abnormal worker terminations (per-worker metric, disabled with `--disable-per-worker-metrics`) |
 
-> **Note**: The `--disable-per-worker-metrics` flag disables only the metrics with the `worker_id` label (`rspecq_worker_heartbeat_timestamp` and `rspecq_workers_withdrawn`), which can lead to high cardinality in environments with many workers. The aggregate metrics `rspecq_worker_count` and `rspecq_build_withdrawn_workers_count` remain enabled as they only have the `build_id` label.
+> **Note**: The `--disable-per-worker-metrics` flag disables only the metrics with the `worker_id` label (`rspecq_worker_heartbeat_timestamp` and `rspecq_workers_withdrawn`), which can lead to high cardinality in environments with many workers. The aggregate metrics `rspecq_workers` and `rspecq_build_withdrawn_workers` remain enabled as they only have the `build_id` label.
 
 ### Timing Metrics
 
@@ -153,7 +153,7 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rspecq_global_timings_count` | Gauge | - | Number of entries in global timings database |
+| `rspecq_global_timings` | Gauge | - | Number of entries in global timings database |
 | `rspecq_build_times_count` | Gauge | - | Number of historical build times stored |
 
 ### Exporter Metrics

@@ -32,21 +32,21 @@ type RSpecQExporter struct {
 	labelNames              []string
 
 	// Build-level metrics
-	buildUnprocessed *prometheus.GaugeVec
-	buildRunning     *prometheus.GaugeVec
-	buildProcessed   *prometheus.GaugeVec
-	buildLost        *prometheus.GaugeVec
-	buildExampleCount     *prometheus.GaugeVec
+	buildUnprocessed      *prometheus.GaugeVec
+	buildRunning          *prometheus.GaugeVec
+	buildProcessed        *prometheus.GaugeVec
+	buildLost             *prometheus.GaugeVec
+	buildExamples         *prometheus.GaugeVec
 	buildExampleFailures  *prometheus.GaugeVec
 	buildNonExampleErrors *prometheus.GaugeVec
 	buildRequeues         *prometheus.GaugeVec
 	buildStatus           *prometheus.GaugeVec
 	buildFailFast         *prometheus.GaugeVec
-	buildWithdrawnCount   *prometheus.GaugeVec
+	buildWithdrawnWorkers *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
-	workerCount      *prometheus.GaugeVec
+	workers          *prometheus.GaugeVec
 	workersWithdrawn *prometheus.GaugeVec
 
 	// Timing metrics
@@ -56,7 +56,7 @@ type RSpecQExporter struct {
 	buildDuration        *prometheus.GaugeVec
 
 	// Global metrics
-	globalTimingsCount prometheus.Gauge
+	globalTimings prometheus.Gauge
 
 	// Scrape metrics
 	scrapeSuccess  prometheus.Gauge
@@ -128,10 +128,10 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
-	exporter.buildExampleCount = prometheus.NewGaugeVec(
+	exporter.buildExamples = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_example_count",
+			Name:      "build_examples",
 			Help:      "Total number of examples executed for a build",
 		},
 		exporter.labelNames,
@@ -176,18 +176,18 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
-	exporter.buildWithdrawnCount = prometheus.NewGaugeVec(
+	exporter.buildWithdrawnWorkers = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "build_withdrawn_workers_count",
+			Name:      "build_withdrawn_workers",
 			Help:      "Total number of withdrawn workers for a build",
 		},
 		exporter.labelNames,
 	)
-	exporter.workerCount = prometheus.NewGaugeVec(
+	exporter.workers = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "worker_count",
+			Name:      "workers",
 			Help:      "Number of active workers for a build",
 		},
 		exporter.labelNames,
@@ -224,10 +224,10 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
-	exporter.globalTimingsCount = prometheus.NewGauge(
+	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name:      "global_timings_count",
+			Name:      "global_timings",
 			Help:      "Number of entries in the global timings key",
 		},
 	)
@@ -282,17 +282,17 @@ func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
 	e.buildRunning.Describe(ch)
 	e.buildProcessed.Describe(ch)
 	e.buildLost.Describe(ch)
-	e.buildExampleCount.Describe(ch)
+	e.buildExamples.Describe(ch)
 	e.buildExampleFailures.Describe(ch)
 	e.buildNonExampleErrors.Describe(ch)
 	e.buildRequeues.Describe(ch)
 	e.buildStatus.Describe(ch)
 	e.buildFailFast.Describe(ch)
-	e.buildWithdrawnCount.Describe(ch)
+	e.buildWithdrawnWorkers.Describe(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Describe(ch)
 	}
-	e.workerCount.Describe(ch)
+	e.workers.Describe(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workersWithdrawn.Describe(ch)
 	}
@@ -300,7 +300,7 @@ func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
 	e.buildReadyAt.Describe(ch)
 	e.buildFinishedAt.Describe(ch)
 	e.buildDuration.Describe(ch)
-	e.globalTimingsCount.Describe(ch)
+	e.globalTimings.Describe(ch)
 	e.scrapeSuccess.Describe(ch)
 	e.scrapeDuration.Describe(ch)
 	e.lastScrapeTime.Describe(ch)
@@ -315,17 +315,17 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.buildRunning.Collect(ch)
 	e.buildProcessed.Collect(ch)
 	e.buildLost.Collect(ch)
-	e.buildExampleCount.Collect(ch)
+	e.buildExamples.Collect(ch)
 	e.buildExampleFailures.Collect(ch)
 	e.buildNonExampleErrors.Collect(ch)
 	e.buildRequeues.Collect(ch)
 	e.buildStatus.Collect(ch)
 	e.buildFailFast.Collect(ch)
-	e.buildWithdrawnCount.Collect(ch)
+	e.buildWithdrawnWorkers.Collect(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Collect(ch)
 	}
-	e.workerCount.Collect(ch)
+	e.workers.Collect(ch)
 	if !e.disablePerWorkerMetrics {
 		e.workersWithdrawn.Collect(ch)
 	}
@@ -333,7 +333,7 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.buildReadyAt.Collect(ch)
 	e.buildFinishedAt.Collect(ch)
 	e.buildDuration.Collect(ch)
-	e.globalTimingsCount.Collect(ch)
+	e.globalTimings.Collect(ch)
 	e.scrapeSuccess.Collect(ch)
 	e.scrapeDuration.Collect(ch)
 	e.lastScrapeTime.Collect(ch)
@@ -377,17 +377,17 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	e.buildRunning.Reset()
 	e.buildProcessed.Reset()
 	e.buildLost.Reset()
-	e.buildExampleCount.Reset()
+	e.buildExamples.Reset()
 	e.buildExampleFailures.Reset()
 	e.buildNonExampleErrors.Reset()
 	e.buildRequeues.Reset()
 	e.buildStatus.Reset()
 	e.buildFailFast.Reset()
-	e.buildWithdrawnCount.Reset()
+	e.buildWithdrawnWorkers.Reset()
 	if !e.disablePerWorkerMetrics {
 		e.workerHeartbeats.Reset()
 	}
-	e.workerCount.Reset()
+	e.workers.Reset()
 	if !e.disablePerWorkerMetrics {
 		e.workersWithdrawn.Reset()
 	}
@@ -557,7 +557,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 
 	// Process results - Example metrics
 	if exampleCount, err := exampleCountCmd.Int64(); err == nil {
-		e.buildExampleCount.With(labels).Set(float64(exampleCount))
+		e.buildExamples.With(labels).Set(float64(exampleCount))
 	}
 
 	if failures, err := failuresCmd.Result(); err == nil {
@@ -601,7 +601,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 
 	// Process results - Worker metrics
 	if heartbeats, err := heartbeatsCmd.Result(); err == nil {
-		e.workerCount.With(labels).Set(float64(len(heartbeats)))
+		e.workers.With(labels).Set(float64(len(heartbeats)))
 		if !e.disablePerWorkerMetrics {
 			for _, hb := range heartbeats {
 				workerID := hb.Member.(string)
@@ -613,7 +613,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	// Process withdrawn workers - always calculate total count for build-level metric
 	if withdrawn, err := withdrawnCmd.Result(); err == nil {
 		totalWithdrawn := float64(len(withdrawn))
-		e.buildWithdrawnCount.With(labels).Set(totalWithdrawn)
+		e.buildWithdrawnWorkers.With(labels).Set(totalWithdrawn)
 
 		// Set per-worker withdrawn metrics if enabled
 		if !e.disablePerWorkerMetrics {
@@ -653,7 +653,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 func (e *RSpecQExporter) collectGlobalMetrics(ctx context.Context) error {
 	// Global timings
 	timingsCount, _ := e.rdb.ZCard(ctx, "timings").Result()
-	e.globalTimingsCount.Set(float64(timingsCount))
+	e.globalTimings.Set(float64(timingsCount))
 
 	return nil
 }
