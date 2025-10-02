@@ -9,3 +9,4 @@ rspecq-exporter
 coverage.out
 .vscode
 .idea
+local/
