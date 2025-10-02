@@ -53,11 +53,11 @@ All tests use `miniredis` for in-memory Redis testing:
 The test suite includes a comprehensive `setupTestBuild` helper function that creates realistic RSpecQ data in Redis:
 
 - **Queue data**: unprocessed, running, processed, and lost jobs
-- **Status keys**: build status (initializing, ready, finished, failed)
+- **Status keys**: build status (initializing, ready)
 - **Example metrics**: example count, failures, errors, requeues
 - **Configuration**: fail-fast settings
 - **Worker data**: heartbeats and withdrawal tracking
-- **Timing data**: elected_master_at, ready_at, finished_at timestamps
+- **Timing data**: elected_master_at, ready_at timestamps
 
 ## Test Execution
 

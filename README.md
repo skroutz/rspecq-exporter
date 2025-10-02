@@ -127,7 +127,7 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 | `rspecq_build_example_failures` | Gauge | `build_id` | Number of failed examples |
 | `rspecq_build_non_example_errors` | Gauge | `build_id` | Number of non-example errors (e.g., syntax errors) |
 | `rspecq_build_requeues` | Gauge | `build_id` | Number of jobs that were requeued |
-| `rspecq_build_status` | Gauge | `build_id`, `status` | Build status (1 = active for that status, 0 = inactive) |
+| `rspecq_build_status` | Gauge | `build_id`, `status` | Build status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready` |
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
 
 ### Worker Metrics
@@ -147,7 +147,6 @@ This will add `project`, `branch`, and `build` labels to all build-level metrics
 |--------|------|--------|-------------|
 | `rspecq_build_elected_master_at` | Gauge | `build_id` | Unix timestamp when master worker was elected |
 | `rspecq_build_ready_at` | Gauge | `build_id` | Unix timestamp when queue became ready |
-| `rspecq_build_finished_at` | Gauge | `build_id` | Unix timestamp when build finished |
 | `rspecq_build_duration_seconds` | Gauge | `build_id` | Build duration in seconds |
 
 ### Global Metrics
@@ -200,9 +199,9 @@ rate(rspecq_build_queue_lost[5m])
 avg(rspecq_build_duration_seconds)
 ```
 
-### Failed Builds
+### Builds with Failures
 ```promql
-rspecq_build_status{status="failed"} == 1
+rspecq_build_example_failures > 0
 ```
 
 ### Stale Workers (No heartbeat in 60s)

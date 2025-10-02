@@ -110,7 +110,6 @@ All build-level metrics now support dynamic labels:
 - `rspecq_worker_count`
 - `rspecq_build_elected_master_at`
 - `rspecq_build_ready_at`
-- `rspecq_build_finished_at`
 - `rspecq_build_duration_seconds`
 
 ## Prometheus Query Examples

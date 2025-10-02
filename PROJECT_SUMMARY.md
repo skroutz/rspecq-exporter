@@ -137,10 +137,9 @@ rspecq-exporter/
 - `rspecq_worker_count`
 - `rspecq_workers_withdrawn`
 
-### Timing (4 metrics)
+### Timing (3 metrics)
 - `rspecq_build_elected_master_at`
 - `rspecq_build_ready_at`
-- `rspecq_build_finished_at`
 - `rspecq_build_duration_seconds`
 
 ### Global (2 metrics)

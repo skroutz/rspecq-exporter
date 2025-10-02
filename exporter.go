@@ -164,7 +164,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "build_status",
-			Help:      "Build status (0=initializing, 1=ready, 2=finished, 3=failed)",
+			Help:      "Build status (0=initializing, 1=ready)",
 		},
 		append(exporter.labelNames, "status"),
 	)
@@ -516,7 +516,6 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 
 	// Status metrics
 	statusCmd := pipe.Get(ctx, statusKey)
-	finishedExistsCmd := pipe.Exists(ctx, finishedKey)
 
 	// Fail-fast config
 	failFastCmd := pipe.HGet(ctx, configKey, "fail_fast")
@@ -561,15 +560,11 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 		e.buildExampleCount.With(labels).Set(float64(exampleCount))
 	}
 
-	failures := int64(0)
-	if f, err := failuresCmd.Result(); err == nil {
-		failures = f
+	if failures, err := failuresCmd.Result(); err == nil {
 		e.buildExampleFailures.With(labels).Set(float64(failures))
 	}
 
-	errors := int64(0)
-	if er, err := errorsCmd.Result(); err == nil {
-		errors = er
+	if errors, err := errorsCmd.Result(); err == nil {
 		e.buildNonExampleErrors.With(labels).Set(float64(errors))
 	}
 
@@ -580,7 +575,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	// Process results - Status metrics
 	status, _ := statusCmd.Result()
 
-	// Set status gauges
+	// Set status gauges - only two statuses exist: initializing and ready
 	statusLabels := make(prometheus.Labels)
 	for k, v := range labels {
 		statusLabels[k] = v
@@ -588,10 +583,6 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	statusLabels["status"] = "initializing"
 	e.buildStatus.With(statusLabels).Set(0)
 	statusLabels["status"] = "ready"
-	e.buildStatus.With(statusLabels).Set(0)
-	statusLabels["status"] = "finished"
-	e.buildStatus.With(statusLabels).Set(0)
-	statusLabels["status"] = "failed"
 	e.buildStatus.With(statusLabels).Set(0)
 
 	switch status {
@@ -601,17 +592,6 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) error {
 	case "ready":
 		statusLabels["status"] = "ready"
 		e.buildStatus.With(statusLabels).Set(1)
-	}
-
-	// Check if finished or failed
-	if exists, _ := finishedExistsCmd.Result(); exists > 0 {
-		if failures > 0 || errors > 0 {
-			statusLabels["status"] = "failed"
-			e.buildStatus.With(statusLabels).Set(1)
-		} else {
-			statusLabels["status"] = "finished"
-			e.buildStatus.With(statusLabels).Set(1)
-		}
 	}
 
 	// Process results - Fail-fast config

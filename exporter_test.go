@@ -561,13 +561,11 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		}
 	}
 
-	// Ensure no error metrics for other statuses (only "ready" should be present)
-	unexpectedStatuses := []string{"initializing", "finished", "failed"}
-	for _, status := range unexpectedStatuses {
-		unexpectedMetric := fmt.Sprintf(`rspecq_build_status{build_id="e2e-test-build",status="%s"}`, status)
-		if strings.Contains(prometheusOutput, unexpectedMetric+" 1") {
-			t.Errorf("Unexpected status metric should not be 1: %s", unexpectedMetric)
-		}
+	// Ensure initializing status is 0 (only "ready" should be 1)
+	// There are only two statuses: initializing and ready
+	initializingMetric := `rspecq_build_status{build_id="e2e-test-build",status="initializing"} 0`
+	if !strings.Contains(prometheusOutput, initializingMetric) {
+		t.Error("Expected initializing status to be 0")
 	}
 
 	t.Logf("✓ All metrics validated successfully!")
