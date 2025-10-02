@@ -331,7 +331,7 @@ func setupTestBuild(t *testing.T, ctx context.Context, rdb *redis.Client, buildI
 //   - Build-level metrics (queue, examples, status, config)
 //   - Worker-level metrics (heartbeats, count, withdrawn)
 //   - Timing metrics (elected_master_at, ready_at)
-//   - Global metrics (timings_count, build_times_count)
+//   - Global metrics (timings_count)
 //   - Scrape metrics (success, duration, timestamp)
 func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	rdb, _, cleanup := setupTestRedis(t)
@@ -501,9 +501,6 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		// Global metrics
 		{`rspecq_global_timings_count`, 3, func() float64 {
 			return testutil.ToFloat64(exporter.globalTimingsCount)
-		}},
-		{`rspecq_build_times_count`, 2, func() float64 {
-			return testutil.ToFloat64(exporter.buildTimesCount)
 		}},
 
 		// Scrape metrics

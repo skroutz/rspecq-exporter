@@ -57,7 +57,6 @@ type RSpecQExporter struct {
 
 	// Global metrics
 	globalTimingsCount prometheus.Gauge
-	buildTimesCount    prometheus.Gauge
 
 	// Scrape metrics
 	scrapeSuccess  prometheus.Gauge
@@ -232,13 +231,6 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 			Help:      "Number of entries in the global timings key",
 		},
 	)
-	exporter.buildTimesCount = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "build_times_count",
-			Help:      "Number of build time entries stored",
-		},
-	)
 	exporter.scrapeSuccess = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -309,7 +301,6 @@ func (e *RSpecQExporter) Describe(ch chan<- *prometheus.Desc) {
 	e.buildFinishedAt.Describe(ch)
 	e.buildDuration.Describe(ch)
 	e.globalTimingsCount.Describe(ch)
-	e.buildTimesCount.Describe(ch)
 	e.scrapeSuccess.Describe(ch)
 	e.scrapeDuration.Describe(ch)
 	e.lastScrapeTime.Describe(ch)
@@ -343,7 +334,6 @@ func (e *RSpecQExporter) Collect(ch chan<- prometheus.Metric) {
 	e.buildFinishedAt.Collect(ch)
 	e.buildDuration.Collect(ch)
 	e.globalTimingsCount.Collect(ch)
-	e.buildTimesCount.Collect(ch)
 	e.scrapeSuccess.Collect(ch)
 	e.scrapeDuration.Collect(ch)
 	e.lastScrapeTime.Collect(ch)
@@ -684,10 +674,6 @@ func (e *RSpecQExporter) collectGlobalMetrics(ctx context.Context) error {
 	// Global timings
 	timingsCount, _ := e.rdb.ZCard(ctx, "timings").Result()
 	e.globalTimingsCount.Set(float64(timingsCount))
-
-	// Build times
-	buildTimesCount, _ := e.rdb.LLen(ctx, "build_times").Result()
-	e.buildTimesCount.Set(float64(buildTimesCount))
 
 	return nil
 }
