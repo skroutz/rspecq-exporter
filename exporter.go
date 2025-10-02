@@ -426,6 +426,7 @@ func (e *RSpecQExporter) scrape(ctx context.Context) {
 	e.buildExampleFailures.Reset()
 	e.buildNonExampleErrors.Reset()
 	e.buildRequeues.Reset()
+	e.buildFlakyFailures.Reset()
 	e.buildStatus.Reset()
 	e.buildFailFast.Reset()
 	e.buildWithdrawnWorkers.Reset()
