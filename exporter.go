@@ -186,7 +186,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "build_queue_status",
-			Help:      "Build queue status (0=initializing, 1=ready)",
+			Help:      "Build queue status (0=inactive, 1=active for each status: initializing, ready, success, failure)",
 		},
 		append(exporter.labelNames, "status"),
 	)
@@ -681,22 +681,22 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	// Process results - Status metrics
 	status, _ := statusCmd.Result()
 
-	// Set status gauges - only two statuses exist: initializing and ready
+	// Set all status gauges to 0 initially
 	statusLabels := make(prometheus.Labels)
 	for k, v := range labels {
 		statusLabels[k] = v
 	}
-	statusLabels["status"] = "initializing"
-	e.buildStatus.With(statusLabels).Set(0)
-	statusLabels["status"] = "ready"
-	e.buildStatus.With(statusLabels).Set(0)
 
+	// Reset all possible statuses to 0
+	for _, s := range []string{"initializing", "ready", "success", "failure"} {
+		statusLabels["status"] = s
+		e.buildStatus.With(statusLabels).Set(0)
+	}
+
+	// Set the current status to 1
 	switch status {
-	case "initializing":
-		statusLabels["status"] = "initializing"
-		e.buildStatus.With(statusLabels).Set(1)
-	case "ready":
-		statusLabels["status"] = "ready"
+	case "initializing", "ready", "success", "failure":
+		statusLabels["status"] = status
 		e.buildStatus.With(statusLabels).Set(1)
 	}
 

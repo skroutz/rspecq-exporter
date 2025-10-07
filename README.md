@@ -128,7 +128,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_non_example_errors` | Gauge | `build_id` | Number of non-example errors (e.g., syntax errors) |
 | `rspecq_build_requeues` | Gauge | `build_id` | Number of jobs that were requeued |
 | `rspecq_build_flaky_failures` | Gauge | `build_id` | Number of flaky failures (examples that failed inconsistently) |
-| `rspecq_build_queue_status` | Gauge | `build_id`, `status` | Build queue status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready` |
+| `rspecq_build_queue_status` | Gauge | `build_id`, `status` | Build queue status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready`, `success`, `failure` |
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
 | `rspecq_build_total_execution_time_seconds` | Gauge | `build_id` | Total execution time for the build in seconds (sum of all worker execution times) |
 
@@ -213,6 +213,15 @@ rspecq_build_example_failures > 0
 time() - rspecq_build_worker_heartbeat_timestamp > 60
 ```
 
+### Successful vs Failed Builds
+```promql
+# Count of successful builds
+count(rspecq_build_queue_status{status="success"} == 1)
+
+# Count of failed builds
+count(rspecq_build_queue_status{status="failure"} == 1)
+```
+
 ### Total Worker Execution Time
 ```promql
 # Total execution time across all workers for a build
@@ -241,7 +250,7 @@ RSpecQ stores data in Redis with the following key patterns:
 - `<build_id>:queue:running` - HASH of jobs currently being executed
 - `<build_id>:queue:processed` - SET of completed jobs
 - `<build_id>:queue:lost` - ZSET of jobs lost due to worker failures
-- `<build_id>:queue:status` - STRING indicating queue status (`initializing` or `ready`)
+- `<build_id>:queue:status` - STRING indicating queue status (`initializing`, `ready`, `success`, `failure`)
 - `<build_id>:queue:config` - HASH containing configuration (e.g., `fail_fast` threshold)
 
 **Example Results:**
