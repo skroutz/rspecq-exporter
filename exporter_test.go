@@ -395,6 +395,9 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	rdb.Set(ctx, buildID+":queue:ready_at", baseTime+10, 0)
 	// Note: NOT setting :queue:finished_at so build stays in "ready" status
 
+	// NEW: Total execution time in milliseconds (sum of all worker execution times)
+	rdb.Set(ctx, buildID+":build_execution_time_ms", "125000", 0) // 125 seconds total
+
 	// Global metrics - note: keys are "timings" and "build_times" (not rspecq:timings)
 	rdb.ZAdd(ctx, "timings",
 		&redis.Z{Score: 1.5, Member: "spec1.rb"},
@@ -503,6 +506,11 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		// Withdrawn workers count (build-level metric)
 		{`rspecq_build_withdrawn_workers{build_id="e2e-test-build"}`, 2, func() float64 {
 			return testutil.ToFloat64(exporter.buildWithdrawnWorkers.WithLabelValues(buildID))
+		}},
+
+		// NEW: Total execution time metric (in seconds)
+		{`rspecq_build_total_execution_time_seconds{build_id="e2e-test-build"}`, 125.0, func() float64 {
+			return testutil.ToFloat64(exporter.buildTotalExecutionTime.WithLabelValues(buildID))
 		}},
 
 		// Global metrics

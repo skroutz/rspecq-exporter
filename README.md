@@ -130,6 +130,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_flaky_failures` | Gauge | `build_id` | Number of flaky failures (examples that failed inconsistently) |
 | `rspecq_build_queue_status` | Gauge | `build_id`, `status` | Build queue status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready` |
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
+| `rspecq_build_total_execution_time_seconds` | Gauge | `build_id` | Total execution time for the build in seconds (sum of all worker execution times) |
 
 ### Worker Metrics
 
@@ -212,6 +213,12 @@ rspecq_build_example_failures > 0
 time() - rspecq_build_worker_heartbeat_timestamp > 60
 ```
 
+### Total Worker Execution Time
+```promql
+# Total execution time across all workers for a build
+rspecq_build_total_execution_time_seconds
+```
+
 ## Grafana Dashboard
 
 A sample Grafana dashboard is available in `grafana/dashboard.json` (to be created). Import it to get started quickly.
@@ -252,6 +259,7 @@ RSpecQ stores data in Redis with the following key patterns:
 - `<build_id>:queue:elected_master_at` - STRING with Unix timestamp when master worker was elected
 - `<build_id>:queue:ready_at` - STRING with Unix timestamp when queue became ready
 - `<build_id>:queue:finished_at` - STRING with Unix timestamp when build finished
+- `<build_id>:build_execution_time_ms` - STRING with total execution time in milliseconds (sum of all worker execution times)
 
 **Global Data:**
 - `timings` - ZSET of global timing data for test scheduling
