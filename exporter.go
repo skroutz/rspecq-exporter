@@ -32,18 +32,19 @@ type RSpecQExporter struct {
 	labelNames              []string
 
 	// Build-level metrics
-	buildUnprocessed      *prometheus.GaugeVec
-	buildRunning          *prometheus.GaugeVec
-	buildProcessed        *prometheus.GaugeVec
-	buildLost             *prometheus.GaugeVec
-	buildExamples         *prometheus.GaugeVec
-	buildExampleFailures  *prometheus.GaugeVec
-	buildNonExampleErrors *prometheus.GaugeVec
-	buildRequeues         *prometheus.GaugeVec
-	buildFlakyFailures    *prometheus.GaugeVec
-	buildStatus           *prometheus.GaugeVec
-	buildFailFast         *prometheus.GaugeVec
-	buildWithdrawnWorkers *prometheus.GaugeVec
+	buildUnprocessed        *prometheus.GaugeVec
+	buildRunning            *prometheus.GaugeVec
+	buildProcessed          *prometheus.GaugeVec
+	buildLost               *prometheus.GaugeVec
+	buildExamples           *prometheus.GaugeVec
+	buildExampleFailures    *prometheus.GaugeVec
+	buildNonExampleErrors   *prometheus.GaugeVec
+	buildRequeues           *prometheus.GaugeVec
+	buildFlakyFailures      *prometheus.GaugeVec
+	buildStatus             *prometheus.GaugeVec
+	buildFailFast           *prometheus.GaugeVec
+	buildWithdrawnWorkers   *prometheus.GaugeVec
+	buildTotalExecutionTime *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -205,6 +206,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
+	exporter.buildTotalExecutionTime = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_total_execution_time_seconds",
+			Help:      "Total execution time for the build in seconds (sum of all worker execution times)",
+		},
+		exporter.labelNames,
+	)
 	exporter.buildWorkers = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -328,6 +337,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildReadyAt,
 		exporter.buildFinishedAt,
 		exporter.buildDuration,
+		exporter.buildTotalExecutionTime,
 	}
 
 	// Per-worker metrics (conditionally included)
@@ -367,6 +377,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildReadyAt,
 		exporter.buildFinishedAt,
 		exporter.buildDuration,
+		exporter.buildTotalExecutionTime,
 	}
 
 	// Add per-worker metrics to resetable list if enabled
@@ -586,6 +597,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	withdrawnKey := buildID + ":workers_withdrawn"
 	electedMasterKey := buildID + ":queue:elected_master_at"
 	readyKey := buildID + ":queue:ready_at"
+	executionTimeKey := buildID + ":build_execution_time_ms"
 
 	// Execute all commands atomically using pipeline with MULTI/EXEC
 	pipe := b.rdb.TxPipeline()
@@ -617,6 +629,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	electedMasterCmd := pipe.Get(ctx, electedMasterKey)
 	readyAtCmd := pipe.Get(ctx, readyKey)
 	finishedAtCmd := pipe.Get(ctx, finishedKey)
+	executionTimeCmd := pipe.Get(ctx, executionTimeKey)
 
 	// Execute the transaction
 	_, err := pipe.Exec(ctx)
@@ -727,6 +740,13 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	if ra, err := readyAtCmd.Int64(); err == nil {
 		readyAt = ra
 		e.buildReadyAt.With(labels).Set(float64(readyAt))
+	}
+
+	// Process results - Total execution time
+	if executionTimeMs, err := executionTimeCmd.Int64(); err == nil {
+		// Convert milliseconds to seconds
+		executionTimeSecs := float64(executionTimeMs) / 1000.0
+		e.buildTotalExecutionTime.With(labels).Set(executionTimeSecs)
 	}
 
 	// Check if build is running (no finished_at timestamp)
