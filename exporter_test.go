@@ -582,14 +582,100 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	}
 
 	// Ensure initializing status is 0 (only "ready" should be 1)
-	// There are only two statuses: initializing and ready
-	initializingMetric := `rspecq_build_queue_status{build_id="e2e-test-build",status="initializing"} 0`
-	if !strings.Contains(prometheusOutput, initializingMetric) {
-		t.Error("Expected initializing status to be 0")
+	// Now supports 4 statuses: initializing, ready, success, failure
+	statusTests := []struct {
+		status   string
+		expected float64
+	}{
+		{"initializing", 0},
+		{"ready", 1}, // Current build is in "ready" status
+		{"success", 0},
+		{"failure", 0},
+	}
+
+	for _, st := range statusTests {
+		statusMetric := fmt.Sprintf(`rspecq_build_queue_status{build_id="e2e-test-build",status="%s"} %v`, st.status, st.expected)
+		if !strings.Contains(prometheusOutput, statusMetric) {
+			t.Errorf("Expected status metric not found: %s", statusMetric)
+		}
 	}
 
 	t.Logf("✓ All metrics validated successfully!")
 	t.Logf("✓ Total metric families: %d", len(metricFamilies))
+
+	// Additional test: Verify a finished build with success/failure status
+	t.Run("FinishedBuildWithSuccessStatus", func(t *testing.T) {
+		successBuildID := "success-build-123"
+		finishedTime := baseTime + 120
+
+		// Set up a successful build
+		rdb.Set(ctx, successBuildID+":queue:status", "success", 0)
+		rdb.Set(ctx, successBuildID+":queue:ready_at", baseTime, 0)
+		rdb.Set(ctx, successBuildID+":queue:finished_at", finishedTime, 0)
+		rdb.Set(ctx, successBuildID+":build_execution_time_ms", "85000", 0) // 85 seconds
+		rdb.Set(ctx, successBuildID+":example_count", "200", 0)
+
+		exporter.scrape(ctx)
+
+		// Verify success status
+		successStatus := testutil.ToFloat64(exporter.buildStatus.WithLabelValues(successBuildID, "success"))
+		if successStatus != 1.0 {
+			t.Errorf("Expected success status to be 1, got %f", successStatus)
+		}
+
+		// Verify other statuses are 0
+		for _, status := range []string{"initializing", "ready", "failure"} {
+			val := testutil.ToFloat64(exporter.buildStatus.WithLabelValues(successBuildID, status))
+			if val != 0.0 {
+				t.Errorf("Expected %s status to be 0, got %f", status, val)
+			}
+		}
+
+		// Verify execution time
+		executionTime := testutil.ToFloat64(exporter.buildTotalExecutionTime.WithLabelValues(successBuildID))
+		if executionTime != 85.0 {
+			t.Errorf("Expected execution time 85.0 seconds, got %f", executionTime)
+		}
+
+		t.Logf("✓ Success build status and execution time validated")
+	})
+
+	t.Run("FinishedBuildWithFailureStatus", func(t *testing.T) {
+		failureBuildID := "failure-build-456"
+		finishedTime := baseTime + 90
+
+		// Set up a failed build
+		rdb.Set(ctx, failureBuildID+":queue:status", "failure", 0)
+		rdb.Set(ctx, failureBuildID+":queue:ready_at", baseTime, 0)
+		rdb.Set(ctx, failureBuildID+":queue:finished_at", finishedTime, 0)
+		rdb.Set(ctx, failureBuildID+":build_execution_time_ms", "60000", 0) // 60 seconds
+		rdb.Set(ctx, failureBuildID+":example_count", "100", 0)
+		rdb.HSet(ctx, failureBuildID+":example_failures", "failing_spec.rb", "assertion failed")
+
+		exporter.scrape(ctx)
+
+		// Verify failure status
+		failureStatus := testutil.ToFloat64(exporter.buildStatus.WithLabelValues(failureBuildID, "failure"))
+		if failureStatus != 1.0 {
+			t.Errorf("Expected failure status to be 1, got %f", failureStatus)
+		}
+
+		// Verify other statuses are 0
+		for _, status := range []string{"initializing", "ready", "success"} {
+			val := testutil.ToFloat64(exporter.buildStatus.WithLabelValues(failureBuildID, status))
+			if val != 0.0 {
+				t.Errorf("Expected %s status to be 0, got %f", status, val)
+			}
+		}
+
+		// Verify execution time
+		executionTime := testutil.ToFloat64(exporter.buildTotalExecutionTime.WithLabelValues(failureBuildID))
+		if executionTime != 60.0 {
+			t.Errorf("Expected execution time 60.0 seconds, got %f", executionTime)
+		}
+
+		t.Logf("✓ Failure build status and execution time validated")
+	})
 
 	// Additional test: Verify metrics cleanup after build removal
 	// This ensures the fix for the flaky_failures bug (metrics not being reset) works correctly
