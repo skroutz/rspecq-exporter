@@ -151,6 +151,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_ready_at` | Gauge | `build_id` | Unix timestamp when queue became ready |
 | `rspecq_build_finished_at` | Gauge | `build_id` | Unix timestamp when build finished |
 | `rspecq_build_duration_seconds` | Gauge | `build_id` | Build duration in seconds |
+| `rspecq_build_next_test_timing_seconds` | Gauge | `build_id` | Expected execution time in seconds for the next test in the unprocessed queue (retrieved from global timings database) |
 
 ### Global Metrics
 

@@ -17,6 +17,27 @@ const (
 	namespace = "rspecq"
 )
 
+// nextTestTimingScript is a Lua script that atomically retrieves the timing
+// for the next test in the unprocessed queue. It uses EVALSHA for optimal performance.
+var nextTestTimingScript = redis.NewScript(`
+	local unprocessed_key = KEYS[1]
+	local timings_key = KEYS[2]
+
+	-- Get the first item from the unprocessed queue (LINDEX is O(1) for index 0)
+	local next_test = redis.call('LINDEX', unprocessed_key, 0)
+
+	-- If there's no next test, return nil
+	if not next_test then
+		return nil
+	end
+
+	-- Look up the timing for this test in the global timings ZSET
+	local timing = redis.call('ZSCORE', timings_key, next_test)
+
+	-- Return the timing (will be nil if not found)
+	return timing
+`)
+
 // Build represents a single RSpecQ build and encapsulates build-specific logic
 type Build struct {
 	id  string
@@ -45,6 +66,7 @@ type RSpecQExporter struct {
 	buildFailFast           *prometheus.GaugeVec
 	buildWithdrawnWorkers   *prometheus.GaugeVec
 	buildTotalExecutionTime *prometheus.GaugeVec
+	buildNextTestTiming     *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -254,6 +276,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
+	exporter.buildNextTestTiming = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_next_test_timing_seconds",
+			Help:      "Expected execution time in seconds for the next test in the unprocessed queue (retrieved from global timings)",
+		},
+		exporter.labelNames,
+	)
 	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -338,6 +368,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildFinishedAt,
 		exporter.buildDuration,
 		exporter.buildTotalExecutionTime,
+		exporter.buildNextTestTiming,
 	}
 
 	// Per-worker metrics (conditionally included)
@@ -378,6 +409,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildFinishedAt,
 		exporter.buildDuration,
 		exporter.buildTotalExecutionTime,
+		exporter.buildNextTestTiming,
 	}
 
 	// Add per-worker metrics to resetable list if enabled
@@ -637,6 +669,13 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 		return false, fmt.Errorf("failed to execute redis transaction: %w", err)
 	}
 
+	// Execute Lua script to get the timing of the next test in the unprocessed queue
+	// Uses EVALSHA with automatic fallback to EVAL for optimal performance
+	nextTestTiming, err := nextTestTimingScript.Run(ctx, b.rdb, []string{unprocessedKey, "timings"}).Result()
+	if err != nil && err != redis.Nil {
+		log.Printf("Warning: failed to get next test timing for build %s: %v", buildID, err)
+	}
+
 	// Extract labels for this build
 	labels := e.extractLabels(buildID)
 
@@ -747,6 +786,15 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 		// Convert milliseconds to seconds
 		executionTimeSecs := float64(executionTimeMs) / 1000.0
 		e.buildTotalExecutionTime.With(labels).Set(executionTimeSecs)
+	}
+
+	// Process results - Next test timing from Lua script
+	if nextTestTiming != nil {
+		if timingStr, ok := nextTestTiming.(string); ok {
+			if timing, err := parseFloat(timingStr); err == nil {
+				e.buildNextTestTiming.With(labels).Set(timing)
+			}
+		}
 	}
 
 	// Check if build is running (no finished_at timestamp)
