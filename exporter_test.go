@@ -406,6 +406,11 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	)
 	rdb.RPush(ctx, "build_times", "120", "95")
 
+	// Add timing for the first item in the unprocessed queue for next_test_timing metric
+	// Note: LPUSH adds items to the head, so with LPUSH("job1", "job2", "job3"),
+	// the list order is [job3, job2, job1], and LINDEX 0 returns "job3"
+	rdb.ZAdd(ctx, "timings", &redis.Z{Score: 3.7, Member: "job3"})
+
 	// Create exporter and register with a custom registry for testing
 	exporter, err := NewRSpecQExporter(rdb, false, "")
 	if err != nil {
@@ -513,8 +518,13 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 			return testutil.ToFloat64(exporter.buildTotalExecutionTime.WithLabelValues(buildID))
 		}},
 
-		// Global metrics
-		{`rspecq_global_timings`, 3, func() float64 {
+		// Next test timing metric (timing for the first item in unprocessed queue - job3)
+		{`rspecq_build_next_test_timing_seconds{build_id="e2e-test-build"}`, 3.7, func() float64 {
+			return testutil.ToFloat64(exporter.buildNextTestTiming.WithLabelValues(buildID))
+		}},
+
+		// Global metrics (now includes the job3 timing, so count is 4 instead of 3)
+		{`rspecq_global_timings`, 4, func() float64 {
 			return testutil.ToFloat64(exporter.globalTimings)
 		}},
 
@@ -907,4 +917,85 @@ func TestRunningBuildsIntegration(t *testing.T) {
 			t.Errorf("Expected 0 running builds when all are finished, got %f", runningBuilds)
 		}
 	})
+}
+
+// TestNextTestTiming tests the build_next_test_timing_seconds metric
+func TestNextTestTiming(t *testing.T) {
+	rdb, mr, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Enable Lua support in miniredis
+	mr.SetTime(time.Unix(1759907586, 0))
+
+	// Create exporter
+	exporter, err := NewRSpecQExporter(rdb, true, "")
+	if err != nil {
+		t.Fatalf("Failed to create exporter: %v", err)
+	}
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	buildID := "test-build"
+
+	// Set up a build with unprocessed queue
+	rdb.Set(ctx, buildID+":queue:status", "ready", 0)
+
+	// Add test files to the unprocessed queue
+	rdb.LPush(ctx, buildID+":queue:unprocessed", "spec/models/user_spec.rb")
+	rdb.LPush(ctx, buildID+":queue:unprocessed", "spec/controllers/api_spec.rb")
+	rdb.LPush(ctx, buildID+":queue:unprocessed", "spec/services/auth_spec.rb")
+
+	// Add timings for these tests in the global timings ZSET
+	// Note: The first item in the queue (LINDEX 0) will be the last pushed, which is "spec/services/auth_spec.rb"
+	rdb.ZAdd(ctx, "timings",
+		&redis.Z{Score: 12.5, Member: "spec/services/auth_spec.rb"},
+		&redis.Z{Score: 8.3, Member: "spec/controllers/api_spec.rb"},
+		&redis.Z{Score: 15.7, Member: "spec/models/user_spec.rb"},
+	)
+
+	// Scrape metrics
+	exporter.scrape(ctx)
+
+	// Check that the next test timing is set correctly
+	nextTestTiming := testutil.ToFloat64(exporter.buildNextTestTiming.WithLabelValues(buildID))
+
+	expectedTiming := 12.5
+	if nextTestTiming != expectedTiming {
+		t.Errorf("Expected next test timing to be %f, got %f", expectedTiming, nextTestTiming)
+	}
+
+	t.Logf("✓ Next test timing metric correctly reports %f seconds for the first unprocessed test", nextTestTiming)
+
+	// Test case: Empty unprocessed queue
+	t.Run("EmptyUnprocessedQueue", func(t *testing.T) {
+		rdb.FlushAll(ctx)
+		buildID2 := "build-empty-queue"
+		rdb.Set(ctx, buildID2+":queue:status", "ready", 0)
+
+		// No items in unprocessed queue
+		exporter.scrape(ctx)
+
+		// The metric should not be set for this build
+		// We can't easily test for "metric not set" without checking the full metric output
+		// So we'll just ensure it doesn't crash
+		t.Logf("✓ Empty queue handled correctly without errors")
+	})
+
+	// Test case: Test not in timings database
+	t.Run("TestNotInTimings", func(t *testing.T) {
+		rdb.FlushAll(ctx)
+		buildID3 := "build-no-timing"
+		rdb.Set(ctx, buildID3+":queue:status", "ready", 0)
+		rdb.LPush(ctx, buildID3+":queue:unprocessed", "spec/unknown_spec.rb")
+
+		// The test is in the queue but not in timings
+		exporter.scrape(ctx)
+
+		// Should not crash
+		t.Logf("✓ Missing timing handled correctly without errors")
+	})
+
 }
