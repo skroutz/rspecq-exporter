@@ -70,6 +70,7 @@ type RSpecQExporter struct {
 	buildNextTestTiming     *prometheus.GaugeVec
 	buildQueueInfo          *prometheus.GaugeVec
 	buildQueueInfoStrings   *prometheus.GaugeVec
+	buildSplittedTimings    *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -303,6 +304,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		append(append(exporter.labelNames, "field"), "value"),
 	)
+	exporter.buildSplittedTimings = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_splitted_timings_seconds",
+			Help:      "Execution time in seconds for splitted spec files (slowest files that were split into multiple jobs)",
+		},
+		append(exporter.labelNames, "spec"),
+	)
 	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -390,6 +399,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildNextTestTiming,
 		exporter.buildQueueInfo,
 		exporter.buildQueueInfoStrings,
+		exporter.buildSplittedTimings,
 	}
 
 	// Per-worker metrics (conditionally included)
@@ -433,6 +443,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildNextTestTiming,
 		exporter.buildQueueInfo,
 		exporter.buildQueueInfoStrings,
+		exporter.buildSplittedTimings,
 	}
 
 	// Add per-worker metrics to resetable list if enabled
@@ -653,6 +664,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	electedMasterKey := buildID + ":queue:elected_master_at"
 	readyKey := buildID + ":queue:ready_at"
 	executionTimeKey := buildID + ":build_execution_time_ms"
+	splittedTimingsKey := buildID + ":build_splitted_timings"
 
 	// Execute all commands atomically using pipeline with MULTI/EXEC
 	pipe := b.rdb.TxPipeline()
@@ -685,6 +697,7 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	readyAtCmd := pipe.Get(ctx, readyKey)
 	finishedAtCmd := pipe.Get(ctx, finishedKey)
 	executionTimeCmd := pipe.Get(ctx, executionTimeKey)
+	splittedTimingsCmd := pipe.ZRevRangeWithScores(ctx, splittedTimingsKey, 0, -1)
 
 	// Execute the transaction
 	_, err := pipe.Exec(ctx)
@@ -842,6 +855,21 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 				labelsWithFieldValue["value"] = statValue
 				e.buildQueueInfoStrings.With(labelsWithFieldValue).Set(1)
 			}
+		}
+	}
+
+	// Process results - Splitted timings (slowest splitted spec files)
+	if splittedTimings, err := splittedTimingsCmd.Result(); err == nil {
+		// Create labels with spec dimension
+		splittedLabels := make(prometheus.Labels)
+		for k, v := range labels {
+			splittedLabels[k] = v
+		}
+
+		for _, timing := range splittedTimings {
+			specFile := timing.Member.(string)
+			splittedLabels["spec"] = specFile
+			e.buildSplittedTimings.With(splittedLabels).Set(timing.Score)
 		}
 	}
 
