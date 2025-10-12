@@ -421,6 +421,12 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	// the list order is [job3, job2, job1], and LINDEX 0 returns "job3"
 	rdb.ZAdd(ctx, "timings", &redis.Z{Score: 3.7, Member: "job3"})
 
+	// Splitted timings - slowest spec files that were split into multiple jobs
+	rdb.ZAdd(ctx, buildID+":build_splitted_timings",
+		&redis.Z{Score: 42.5, Member: "spec/slow_feature_spec.rb"},
+		&redis.Z{Score: 35.8, Member: "spec/models/user_spec.rb"},
+	)
+
 	// Create exporter and register with a custom registry for testing
 	exporter, err := NewRSpecQExporter(rdb, false, "")
 	if err != nil {
@@ -553,6 +559,14 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		// Queue info strings metric (non-numeric values)
 		{`rspecq_build_queue_info_strings{build_id="e2e-test-build",field="version",value="1.2.3"}`, 1, func() float64 {
 			return testutil.ToFloat64(exporter.buildQueueInfoStrings.WithLabelValues(buildID, "version", "1.2.3"))
+		}},
+
+		// Splitted timings metrics (slowest spec files that were split)
+		{`rspecq_build_splitted_timings_seconds{build_id="e2e-test-build",spec="spec/slow_feature_spec.rb"}`, 42.5, func() float64 {
+			return testutil.ToFloat64(exporter.buildSplittedTimings.WithLabelValues(buildID, "spec/slow_feature_spec.rb"))
+		}},
+		{`rspecq_build_splitted_timings_seconds{build_id="e2e-test-build",spec="spec/models/user_spec.rb"}`, 35.8, func() float64 {
+			return testutil.ToFloat64(exporter.buildSplittedTimings.WithLabelValues(buildID, "spec/models/user_spec.rb"))
 		}},
 
 		// Global metrics (now includes the job3 timing, so count is 4 instead of 3)

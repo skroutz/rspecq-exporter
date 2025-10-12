@@ -133,6 +133,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_total_execution_time_seconds` | Gauge | `build_id` | Total execution time for the build in seconds (sum of all worker execution times) |
 | `rspecq_build_queue_info` | Gauge | `build_id`, `stat` | Queue initialization statistics dynamically collected from Redis. Common stat values: `jobs` (total jobs published), `files_splitted` (slow files split into examples), `splitted_jobs` (jobs from splitting), `untimed_jobs` (jobs without timing data), `untimed_splitted_jobs` (untimed jobs among split examples) |
 | `rspecq_build_queue_info_strings` | Gauge | `build_id`, `field`, `value` | Non-numeric queue info fields exposed as labels (value is always 1). Useful for tracking metadata like version, environment, or status strings |
+| `rspecq_build_splitted_timings_seconds` | Gauge | `build_id`, `spec` | Execution time in seconds for spec files that were split into multiple jobs (slowest files) |
 
 ### Worker Metrics
 
@@ -234,24 +235,28 @@ rspecq_build_total_execution_time_seconds
 ### Queue Statistics
 
 #### Job Splitting Efficiency
+
 ```promql
 # Percentage of jobs that came from file splitting
 100 * rspecq_build_queue_info{stat="splitted_jobs"} / rspecq_build_queue_info{stat="jobs"}
 ```
 
 #### Test Coverage Gap (Untimed Tests)
+
 ```promql
 # Percentage of jobs without historical timing data
 100 * rspecq_build_queue_info{stat="untimed_jobs"} / rspecq_build_queue_info{stat="jobs"}
 ```
 
 #### Slow File Detection
+
 ```promql
 # Number of slow files being split across builds
 rspecq_build_queue_info{stat="files_splitted"}
 ```
 
 #### All Queue Initialization Stats
+
 ```promql
 # View all queue statistics for a build
 rspecq_build_queue_info{build_id="myapp-123"}
@@ -268,6 +273,13 @@ rspecq_build_queue_info_strings{field="environment",value="production"}
 
 # View all metadata fields for a build
 rspecq_build_queue_info_strings{build_id="myapp-123"}
+```
+
+### Slowest Split Spec Files
+
+```promql
+# Show the slowest spec files that were split into multiple jobs
+topk(10, rspecq_build_splitted_timings_seconds)
 ```
 
 ## Grafana Dashboard
@@ -311,6 +323,7 @@ RSpecQ stores data in Redis with the following key patterns:
 - `<build_id>:queue:ready_at` - STRING with Unix timestamp when queue became ready
 - `<build_id>:queue:finished_at` - STRING with Unix timestamp when build finished
 - `<build_id>:build_execution_time_ms` - STRING with total execution time in milliseconds (sum of all worker execution times)
+- `<build_id>:build_splitted_timings` - ZSET of slowest spec files that were split into multiple jobs (member = spec file path, score = execution time in seconds)
 
 **Queue Statistics:**
 - `<build_id>:info` - HASH containing queue initialization statistics (dynamically collected):
