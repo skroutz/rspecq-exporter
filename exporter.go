@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,7 @@ type RSpecQExporter struct {
 	buildTotalExecutionTime *prometheus.GaugeVec
 	buildNextTestTiming     *prometheus.GaugeVec
 	buildQueueInfo          *prometheus.GaugeVec
+	buildQueueInfoStrings   *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -293,6 +295,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		append(exporter.labelNames, "stat"),
 	)
+	exporter.buildQueueInfoStrings = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_info_strings",
+			Help:      "Non-numeric queue info fields exposed as labels (value is always 1)",
+		},
+		append(append(exporter.labelNames, "field"), "value"),
+	)
 	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -379,6 +389,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildTotalExecutionTime,
 		exporter.buildNextTestTiming,
 		exporter.buildQueueInfo,
+		exporter.buildQueueInfoStrings,
 	}
 
 	// Per-worker metrics (conditionally included)
@@ -421,6 +432,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildTotalExecutionTime,
 		exporter.buildNextTestTiming,
 		exporter.buildQueueInfo,
+		exporter.buildQueueInfoStrings,
 	}
 
 	// Add per-worker metrics to resetable list if enabled
@@ -813,12 +825,22 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 	if info, err := b.rdb.HGetAll(ctx, infoKey).Result(); err == nil && len(info) > 0 {
 		for statName, statValue := range info {
 			if val, err := parseFloat(statValue); err == nil {
+				// Numeric value - use buildQueueInfo
 				labelsWithStat := prometheus.Labels{}
 				for k, v := range labels {
 					labelsWithStat[k] = v
 				}
 				labelsWithStat["stat"] = statName
 				e.buildQueueInfo.With(labelsWithStat).Set(val)
+			} else {
+				// Non-numeric value - use buildQueueInfoStrings with value as label
+				labelsWithFieldValue := prometheus.Labels{}
+				for k, v := range labels {
+					labelsWithFieldValue[k] = v
+				}
+				labelsWithFieldValue["field"] = statName
+				labelsWithFieldValue["value"] = statValue
+				e.buildQueueInfoStrings.With(labelsWithFieldValue).Set(1)
 			}
 		}
 	}
@@ -854,7 +876,6 @@ func (e *RSpecQExporter) collectGlobalMetrics(ctx context.Context) error {
 
 // parseFloat is a helper to convert string to float64
 func parseFloat(s string) (float64, error) {
-	var f float64
-	_, err := fmt.Sscanf(s, "%f", &f)
-	return f, err
+	// Use strconv.ParseFloat to ensure the entire string is a valid float
+	return strconv.ParseFloat(strings.TrimSpace(s), 64)
 }

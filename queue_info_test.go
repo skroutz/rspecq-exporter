@@ -73,9 +73,16 @@ func TestQueueInfo_NonNumericStringValues(t *testing.T) {
 		t.Errorf("Expected valid_metric to be 42.0, got %f", actual)
 	}
 
-	// Non-numeric strings should be silently ignored (no panic, no error)
-	// We can't easily test that they weren't set without accessing internal state,
-	// but the fact that no error occurred proves they were handled gracefully
+	// Non-numeric strings should be exposed via buildQueueInfoStrings
+	if actual := testutil.ToFloat64(exporter.buildQueueInfoStrings.WithLabelValues(buildID, "description", "this is a text description")); actual != 1.0 {
+		t.Errorf("Expected description metric to be 1.0, got %f", actual)
+	}
+	if actual := testutil.ToFloat64(exporter.buildQueueInfoStrings.WithLabelValues(buildID, "status", "running")); actual != 1.0 {
+		t.Errorf("Expected status metric to be 1.0, got %f", actual)
+	}
+	if actual := testutil.ToFloat64(exporter.buildQueueInfoStrings.WithLabelValues(buildID, "untimed_jobs", "not-a-number")); actual != 1.0 {
+		t.Errorf("Expected untimed_jobs string metric to be 1.0, got %f", actual)
+	}
 }
 
 // TestQueueInfo_DynamicDiscovery tests that any hash key is collected dynamically

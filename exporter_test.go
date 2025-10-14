@@ -405,6 +405,7 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		"splitted_jobs":         "25",
 		"untimed_jobs":          "10",
 		"untimed_splitted_jobs": "3",
+		"version":               "1.2.3", // Non-numeric value
 	})
 
 	// Global metrics - note: keys are "timings" and "build_times" (not rspecq:timings)
@@ -547,6 +548,11 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		}},
 		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="untimed_splitted_jobs"}`, 3, func() float64 {
 			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "untimed_splitted_jobs"))
+		}},
+
+		// Queue info strings metric (non-numeric values)
+		{`rspecq_build_queue_info_strings{build_id="e2e-test-build",field="version",value="1.2.3"}`, 1, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfoStrings.WithLabelValues(buildID, "version", "1.2.3"))
 		}},
 
 		// Global metrics (now includes the job3 timing, so count is 4 instead of 3)

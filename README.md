@@ -132,6 +132,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
 | `rspecq_build_total_execution_time_seconds` | Gauge | `build_id` | Total execution time for the build in seconds (sum of all worker execution times) |
 | `rspecq_build_queue_info` | Gauge | `build_id`, `stat` | Queue initialization statistics dynamically collected from Redis. Common stat values: `jobs` (total jobs published), `files_splitted` (slow files split into examples), `splitted_jobs` (jobs from splitting), `untimed_jobs` (jobs without timing data), `untimed_splitted_jobs` (untimed jobs among split examples) |
+| `rspecq_build_queue_info_strings` | Gauge | `build_id`, `field`, `value` | Non-numeric queue info fields exposed as labels (value is always 1). Useful for tracking metadata like version, environment, or status strings |
 
 ### Worker Metrics
 
@@ -256,6 +257,19 @@ rspecq_build_queue_info{stat="files_splitted"}
 rspecq_build_queue_info{build_id="myapp-123"}
 ```
 
+#### Build Metadata (Version, Environment, etc.)
+
+```promql
+# Get version information from build metadata
+rspecq_build_queue_info_strings{build_id="myapp-123",field="version"}
+
+# Filter builds by environment
+rspecq_build_queue_info_strings{field="environment",value="production"}
+
+# View all metadata fields for a build
+rspecq_build_queue_info_strings{build_id="myapp-123"}
+```
+
 ## Grafana Dashboard
 
 A sample Grafana dashboard is available in `grafana/dashboard.json` (to be created). Import it to get started quickly.
@@ -300,12 +314,17 @@ RSpecQ stores data in Redis with the following key patterns:
 
 **Queue Statistics:**
 - `<build_id>:info` - HASH containing queue initialization statistics (dynamically collected):
-  - `jobs` - Total number of jobs published to the queue
-  - `files_splitted` - Number of slow files split into individual examples
-  - `splitted_jobs` - Number of jobs created from file splitting
-  - `untimed_jobs` - Number of jobs without historical timing data
-  - `untimed_splitted_jobs` - Number of untimed jobs among split examples
-  - (Additional stats may be added by RSpecQ in future versions)
+  - Numeric fields (exposed via `rspecq_build_queue_info`):
+    - `jobs` - Total number of jobs published to the queue
+    - `files_splitted` - Number of slow files split into individual examples
+    - `splitted_jobs` - Number of jobs created from file splitting
+    - `untimed_jobs` - Number of jobs without historical timing data
+    - `untimed_splitted_jobs` - Number of untimed jobs among split examples
+  - String fields (exposed via `rspecq_build_queue_info_strings`):
+    - `version` - RSpecQ version or build version
+    - `environment` - Environment name (e.g., "production", "staging")
+    - `description` - Build description or other metadata
+  - (Additional stats may be added by RSpecQ in future versions and will be automatically discovered)
 
 **Global Data:**
 - `timings` - ZSET of global timing data for test scheduling
