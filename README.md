@@ -131,6 +131,7 @@ By default, per-worker metrics are disabled to reduce metric cardinality. To ena
 | `rspecq_build_queue_status` | Gauge | `build_id`, `status` | Build queue status (1 = active for that status, 0 = inactive). Status values: `initializing`, `ready`, `success`, `failure` |
 | `rspecq_build_fail_fast` | Gauge | `build_id` | Fail-fast threshold (0 = disabled) |
 | `rspecq_build_total_execution_time_seconds` | Gauge | `build_id` | Total execution time for the build in seconds (sum of all worker execution times) |
+| `rspecq_build_queue_info` | Gauge | `build_id`, `stat` | Queue initialization statistics dynamically collected from Redis. Common stat values: `jobs` (total jobs published), `files_splitted` (slow files split into examples), `splitted_jobs` (jobs from splitting), `untimed_jobs` (jobs without timing data), `untimed_splitted_jobs` (untimed jobs among split examples) |
 
 ### Worker Metrics
 
@@ -229,6 +230,32 @@ count(rspecq_build_queue_status{status="failure"} == 1)
 rspecq_build_total_execution_time_seconds
 ```
 
+### Queue Statistics
+
+#### Job Splitting Efficiency
+```promql
+# Percentage of jobs that came from file splitting
+100 * rspecq_build_queue_info{stat="splitted_jobs"} / rspecq_build_queue_info{stat="jobs"}
+```
+
+#### Test Coverage Gap (Untimed Tests)
+```promql
+# Percentage of jobs without historical timing data
+100 * rspecq_build_queue_info{stat="untimed_jobs"} / rspecq_build_queue_info{stat="jobs"}
+```
+
+#### Slow File Detection
+```promql
+# Number of slow files being split across builds
+rspecq_build_queue_info{stat="files_splitted"}
+```
+
+#### All Queue Initialization Stats
+```promql
+# View all queue statistics for a build
+rspecq_build_queue_info{build_id="myapp-123"}
+```
+
 ## Grafana Dashboard
 
 A sample Grafana dashboard is available in `grafana/dashboard.json` (to be created). Import it to get started quickly.
@@ -270,6 +297,15 @@ RSpecQ stores data in Redis with the following key patterns:
 - `<build_id>:queue:ready_at` - STRING with Unix timestamp when queue became ready
 - `<build_id>:queue:finished_at` - STRING with Unix timestamp when build finished
 - `<build_id>:build_execution_time_ms` - STRING with total execution time in milliseconds (sum of all worker execution times)
+
+**Queue Statistics:**
+- `<build_id>:info` - HASH containing queue initialization statistics (dynamically collected):
+  - `jobs` - Total number of jobs published to the queue
+  - `files_splitted` - Number of slow files split into individual examples
+  - `splitted_jobs` - Number of jobs created from file splitting
+  - `untimed_jobs` - Number of jobs without historical timing data
+  - `untimed_splitted_jobs` - Number of untimed jobs among split examples
+  - (Additional stats may be added by RSpecQ in future versions)
 
 **Global Data:**
 - `timings` - ZSET of global timing data for test scheduling

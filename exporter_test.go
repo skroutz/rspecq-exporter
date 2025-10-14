@@ -398,6 +398,15 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 	// NEW: Total execution time in milliseconds (sum of all worker execution times)
 	rdb.Set(ctx, buildID+":build_execution_time_ms", "125000", 0) // 125 seconds total
 
+	// NEW: Queue info statistics (from master worker initialization)
+	rdb.HSet(ctx, buildID+":info", map[string]interface{}{
+		"jobs":                  "150",
+		"files_splitted":        "5",
+		"splitted_jobs":         "25",
+		"untimed_jobs":          "10",
+		"untimed_splitted_jobs": "3",
+	})
+
 	// Global metrics - note: keys are "timings" and "build_times" (not rspecq:timings)
 	rdb.ZAdd(ctx, "timings",
 		&redis.Z{Score: 1.5, Member: "spec1.rb"},
@@ -521,6 +530,23 @@ func TestE2E_HappyPath_AllMetrics(t *testing.T) {
 		// Next test timing metric (timing for the first item in unprocessed queue - job3)
 		{`rspecq_build_next_test_timing_seconds{build_id="e2e-test-build"}`, 3.7, func() float64 {
 			return testutil.ToFloat64(exporter.buildNextTestTiming.WithLabelValues(buildID))
+		}},
+
+		// Queue info metrics (from :info hash)
+		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="jobs"}`, 150, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "jobs"))
+		}},
+		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="files_splitted"}`, 5, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "files_splitted"))
+		}},
+		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="splitted_jobs"}`, 25, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "splitted_jobs"))
+		}},
+		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="untimed_jobs"}`, 10, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "untimed_jobs"))
+		}},
+		{`rspecq_build_queue_info{build_id="e2e-test-build",stat="untimed_splitted_jobs"}`, 3, func() float64 {
+			return testutil.ToFloat64(exporter.buildQueueInfo.WithLabelValues(buildID, "untimed_splitted_jobs"))
 		}},
 
 		// Global metrics (now includes the job3 timing, so count is 4 instead of 3)

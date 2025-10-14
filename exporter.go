@@ -67,6 +67,7 @@ type RSpecQExporter struct {
 	buildWithdrawnWorkers   *prometheus.GaugeVec
 	buildTotalExecutionTime *prometheus.GaugeVec
 	buildNextTestTiming     *prometheus.GaugeVec
+	buildQueueInfo          *prometheus.GaugeVec
 
 	// Worker-level metrics
 	workerHeartbeats *prometheus.GaugeVec
@@ -284,6 +285,14 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		},
 		exporter.labelNames,
 	)
+	exporter.buildQueueInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "build_queue_info",
+			Help:      "Queue initialization statistics (jobs published, files split, untimed jobs, etc.)",
+		},
+		append(exporter.labelNames, "stat"),
+	)
 	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -369,6 +378,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildDuration,
 		exporter.buildTotalExecutionTime,
 		exporter.buildNextTestTiming,
+		exporter.buildQueueInfo,
 	}
 
 	// Per-worker metrics (conditionally included)
@@ -410,6 +420,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 		exporter.buildDuration,
 		exporter.buildTotalExecutionTime,
 		exporter.buildNextTestTiming,
+		exporter.buildQueueInfo,
 	}
 
 	// Add per-worker metrics to resetable list if enabled
@@ -793,6 +804,21 @@ func (b *Build) CollectMetrics(ctx context.Context, e *RSpecQExporter) (bool, er
 		if timingStr, ok := nextTestTiming.(string); ok {
 			if timing, err := parseFloat(timingStr); err == nil {
 				e.buildNextTestTiming.With(labels).Set(timing)
+			}
+		}
+	}
+
+	// Collect queue info statistics (dynamically from info hash)
+	infoKey := buildID + ":info"
+	if info, err := b.rdb.HGetAll(ctx, infoKey).Result(); err == nil && len(info) > 0 {
+		for statName, statValue := range info {
+			if val, err := parseFloat(statValue); err == nil {
+				labelsWithStat := prometheus.Labels{}
+				for k, v := range labels {
+					labelsWithStat[k] = v
+				}
+				labelsWithStat["stat"] = statName
+				e.buildQueueInfo.With(labelsWithStat).Set(val)
 			}
 		}
 	}
