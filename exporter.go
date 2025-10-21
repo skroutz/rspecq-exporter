@@ -214,7 +214,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 			Name:      "build_queue_status",
 			Help:      "Build queue status (0=inactive, 1=active for each status: initializing, ready, success, failure)",
 		},
-		append(exporter.labelNames, "status"),
+		append(append([]string{}, exporter.labelNames...), "status"),
 	)
 	exporter.buildFailFast = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -294,7 +294,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 			Name:      "build_queue_info",
 			Help:      "Queue initialization statistics (jobs published, files split, untimed jobs, etc.)",
 		},
-		append(exporter.labelNames, "stat"),
+		append(append([]string{}, exporter.labelNames...), "stat"),
 	)
 	exporter.buildQueueInfoStrings = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -302,7 +302,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 			Name:      "build_queue_info_strings",
 			Help:      "Non-numeric queue info fields exposed as labels (value is always 1)",
 		},
-		append(append(exporter.labelNames, "field"), "value"),
+		append(append([]string{}, exporter.labelNames...), "field", "value"),
 	)
 	exporter.buildSplittedTimings = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -310,7 +310,7 @@ func NewRSpecQExporter(rdb *redis.Client, disablePerWorkerMetrics bool, buildIDR
 			Name:      "build_splitted_timings_seconds",
 			Help:      "Execution time in seconds for splitted spec files (slowest files that were split into multiple jobs)",
 		},
-		append(exporter.labelNames, "spec"),
+		append(append([]string{}, exporter.labelNames...), "spec"),
 	)
 	exporter.globalTimings = prometheus.NewGauge(
 		prometheus.GaugeOpts{
